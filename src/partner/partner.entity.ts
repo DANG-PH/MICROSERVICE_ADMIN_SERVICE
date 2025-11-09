@@ -24,7 +24,7 @@ export class Partner {
   status: string; // SOLD, ACTIVE
 
   @Column({ nullable: false })
-  partner_id: string; // ai đăng bán acc
+  partner_id: number; // ai đăng bán acc
 
   @CreateDateColumn({default: new Date()})
   createdAt: Date;

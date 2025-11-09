@@ -23,12 +23,12 @@ export class Cashier {
   @Column({ nullable: false, default: "PENDING" })
   status: string; // PENDING, SUCCESS, ERROR
 
-  @Column({ nullable: false, default: "Chưa ai duyệt" })
+  @Column({nullable:true, default: null })
   finance_id: number; // ai duyệt
 
   @CreateDateColumn({default: new Date()})
   request_at: Date;
   
-  @CreateDateColumn({default: new Date()})
+  @CreateDateColumn({nullable: true, default: new Date()})
   success_at: Date; // ngày chuyển tiền
 }

@@ -5,9 +5,10 @@ import { CashierModule } from 'src/cashier/cashier.module';
 import { EditorModule } from 'src/editor/editor.module';
 import { PartnerModule } from 'src/partner/partner.module';
 import { AdminController } from './admin.controller';
+import { PayModule } from 'src/pay/pay.module';
 
 @Module({
-  imports: [FinanceModule ,CashierModule, EditorModule, PartnerModule], // Kết nối entity User
+  imports: [FinanceModule ,CashierModule, EditorModule, PartnerModule, PayModule], // Kết nối entity User
   providers: [],                  // Service sẽ được inject
   controllers: [AdminController],            // Controller xử lý API
   exports: [],

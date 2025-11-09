@@ -3,7 +3,7 @@ import { AppModule } from './app.module';
 import { MicroserviceOptions, Transport } from '@nestjs/microservices';
 import { join } from 'path';
 import { Logger } from '@nestjs/common';
-import { USER_PACKAGE_NAME } from 'proto/user.pb';
+import { ADMIN_PACKAGE_NAME } from 'proto/admin.pb';
 
 async function bootstrap() {
   const logger = new Logger('Bootstrap');
@@ -13,7 +13,7 @@ async function bootstrap() {
   app.connectMicroservice<MicroserviceOptions>({
     transport: Transport.GRPC,
     options: {
-      package: USER_PACKAGE_NAME,
+      package: ADMIN_PACKAGE_NAME,
       protoPath: join(process.cwd(), 'proto/admin.proto'), 
       url: '0.0.0.0:50056', 
       loader: {

@@ -8,6 +8,7 @@ import { CashierModule } from 'src/cashier/cashier.module';
 import { EditorModule } from 'src/editor/editor.module';
 import { PartnerModule } from 'src/partner/partner.module';
 import { AdminModule } from './admin/admin.module';
+import { PayModule } from './pay/pay.module';
 
 @Module({
   imports: [
@@ -29,7 +30,8 @@ import { AdminModule } from './admin/admin.module';
     FinanceModule,
     CashierModule,
     EditorModule,
-    PartnerModule
+    PartnerModule,
+    PayModule
   ],
   controllers: [AppController],
   providers: [AppService],
