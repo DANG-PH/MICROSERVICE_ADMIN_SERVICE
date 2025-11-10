@@ -20,9 +20,9 @@ export class Editor {
   @Column({ nullable: false, default: "ACTIVE" })
   status: string; // ACTIVE hoặc LOCKED
 
-  @CreateDateColumn({default: new Date()})
+  @CreateDateColumn()
   create_at: Date;
   
-  @UpdateDateColumn({default: new Date()})
+  @UpdateDateColumn()
   update_at: Date; 
 }

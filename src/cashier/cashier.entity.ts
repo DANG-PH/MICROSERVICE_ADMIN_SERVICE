@@ -26,9 +26,9 @@ export class Cashier {
   @Column({nullable:true, default: null })
   finance_id: number; // ai duyệt
 
-  @CreateDateColumn({default: new Date()})
+  @CreateDateColumn()
   request_at: Date;
   
-  @CreateDateColumn({nullable: true, default: new Date()})
+  @CreateDateColumn({nullable: true})
   success_at: Date; // ngày chuyển tiền
 }

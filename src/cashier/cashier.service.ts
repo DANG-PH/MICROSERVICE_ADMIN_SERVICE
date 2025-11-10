@@ -1,4 +1,4 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, Inject } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { Cashier } from './cashier.entity';
@@ -14,6 +14,8 @@ import {
 import { status } from '@grpc/grpc-js';
 import { FinanceService } from 'src/finance/finance.service';
 import { winstonLogger } from 'src/logger/logger.config';
+import { CACHE_MANAGER } from '@nestjs/cache-manager';
+import type { Cache } from 'cache-manager';
 
 @Injectable()
 export class CashierService {
@@ -21,7 +23,8 @@ export class CashierService {
     @InjectRepository(Cashier)
     private readonly cashierRepository: Repository<Cashier>,
     private readonly payService: PayService,
-    private readonly financeService: FinanceService
+    private readonly financeService: FinanceService,
+    @Inject(CACHE_MANAGER) private cacheManager: Cache
   ) {}
    // ====== Tạo yêu cầu rút tiền ======
   async createWithdrawRequest(payload: CreateWithdrawRequestt): Promise<WithdrawResponse> {
@@ -45,6 +48,10 @@ export class CashierService {
     });
 
     const saved = await this.cashierRepository.save(newWithdraw);
+
+    const key = `rut_tien: ${payload.user_id}`;
+    await this.cacheManager.set(key, payload.amount);
+    await this.payService.updateMoney({userId: payload.user_id, amount: userBalance-payload.amount})
     return {
       withdraw: {
         ...saved,
@@ -86,6 +93,9 @@ export class CashierService {
     withdraw.success_at = new Date();
 
     const updated = await this.cashierRepository.save(withdraw);
+
+    const key = `rut_tien: ${withdraw.user_id}`;
+    await this.cacheManager.del(key)
     
     await this.financeService.createFinanceRecord(
       {
@@ -116,6 +126,13 @@ export class CashierService {
     withdraw.success_at = new Date();
 
     const updated = await this.cashierRepository.save(withdraw);
+
+    const payResp = await this.payService.getPay({userId: withdraw.user_id});
+    const userBalance = Number(payResp.pay?.tien) || 0;
+    const key = `rut_tien: ${withdraw.user_id}`;
+    let amount_back = (await this.cacheManager.get<number>(key)) || 0;
+    
+    await this.payService.updateMoney({userId: withdraw.user_id, amount: userBalance+amount_back})
     return {
       withdraw: {
         ...updated,

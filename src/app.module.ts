@@ -9,6 +9,7 @@ import { EditorModule } from 'src/editor/editor.module';
 import { PartnerModule } from 'src/partner/partner.module';
 import { AdminModule } from './admin/admin.module';
 import { PayModule } from './pay/pay.module';
+import { RedisModule } from './redis/redis.module';
 
 @Module({
   imports: [
@@ -31,7 +32,8 @@ import { PayModule } from './pay/pay.module';
     CashierModule,
     EditorModule,
     PartnerModule,
-    PayModule
+    PayModule,
+    RedisModule
   ],
   controllers: [AppController],
   providers: [AppService],

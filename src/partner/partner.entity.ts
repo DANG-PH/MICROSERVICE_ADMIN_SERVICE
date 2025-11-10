@@ -26,6 +26,6 @@ export class Partner {
   @Column({ nullable: false })
   partner_id: number; // ai đăng bán acc
 
-  @CreateDateColumn({default: new Date()})
+  @CreateDateColumn()
   createdAt: Date;
 }

@@ -14,6 +14,6 @@ export class Finance {
   @Column({ nullable: false })
   amount: number;
 
-  @CreateDateColumn({default: new Date()})
+  @CreateDateColumn()
   create_at: Date;
 }
