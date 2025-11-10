@@ -5,7 +5,7 @@ export class Cashier {
   @PrimaryGeneratedColumn()
   id: number;
 
-  @Column({ nullable: false, unique: true })
+  @Column({ nullable: false })
   user_id: number;
 
   @Column({ nullable: false })

@@ -49,9 +49,9 @@ export class CashierService {
 
     const saved = await this.cashierRepository.save(newWithdraw);
 
-    const key = `rut_tien: ${payload.user_id}`;
+    const key = `rut_tien:${payload.user_id}:${saved.id}`;;
     await this.cacheManager.set(key, payload.amount);
-    await this.payService.updateMoney({userId: payload.user_id, amount: userBalance-payload.amount})
+    await this.payService.updateMoney({userId: payload.user_id, amount: 0-payload.amount})
     return {
       withdraw: {
         ...saved,
@@ -94,7 +94,7 @@ export class CashierService {
 
     const updated = await this.cashierRepository.save(withdraw);
 
-    const key = `rut_tien: ${withdraw.user_id}`;
+    const key = `rut_tien:${withdraw.user_id}:${withdraw.id}`;;
     await this.cacheManager.del(key)
     
     await this.financeService.createFinanceRecord(
@@ -129,10 +129,10 @@ export class CashierService {
 
     const payResp = await this.payService.getPay({userId: withdraw.user_id});
     const userBalance = Number(payResp.pay?.tien) || 0;
-    const key = `rut_tien: ${withdraw.user_id}`;
+    const key = `rut_tien:${withdraw.user_id}:${withdraw.id}`;;
     let amount_back = (await this.cacheManager.get<number>(key)) || 0;
     
-    await this.payService.updateMoney({userId: withdraw.user_id, amount: userBalance+amount_back})
+    await this.payService.updateMoney({userId: withdraw.user_id, amount: amount_back})
     return {
       withdraw: {
         ...updated,
