@@ -11,7 +11,7 @@ export class Editor {
   @Column({ nullable: false })
   url_anh: string; 
 
-  @Column({ nullable: false })
+  @Column({ type: 'longtext', nullable: false })
   content: string;
 
   @Column({ nullable: false })
