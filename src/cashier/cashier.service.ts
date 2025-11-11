@@ -74,11 +74,11 @@ export class CashierService {
 
   // ====== Lấy tất cả yêu cầu rút tiền (cho admin) ======
   async getAllWithdrawRequests(): Promise<ListWithdrawResponse> {
-    // const withdraws = await this.cashierRepository.find();
-    const withdraws = await this.cashierRepository.find({
-      where: { status: 'PENDING' },
-      order: { request_at: 'DESC' }, // sắp xếp mới nhất lên đầu 
-    });
+    const withdraws = await this.cashierRepository.find();
+    // const withdraws = await this.cashierRepository.find({
+    //   where: { status: 'PENDING' },
+    //   order: { request_at: 'DESC' }, // sắp xếp mới nhất lên đầu 
+    // });
     const mappedWithdraws = withdraws.map(withdraw => ({
       ...withdraw,
       request_at: withdraw.request_at.toISOString(),
