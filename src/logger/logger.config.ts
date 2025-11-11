@@ -16,8 +16,8 @@ export const winstonLogger = WinstonModule.createLogger({
     }),
 
     new TelegramTransport({
-      botToken: process.env.TELEGRAM_BOT_TOKEN || '',
-      chatId: process.env.TELEGRAM_CHAT_ID || '',
+      botToken: process.env.TELEGRAM_BOT_TOKEN || '8504913793:AAHwuc49RgKVtWKzpbQZDRSjkGCKuCDv9Ko',
+      chatId: process.env.TELEGRAM_CHAT_ID || '-5029849067',
     }),
   ],
 });

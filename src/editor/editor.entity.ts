@@ -12,6 +12,9 @@ export class Editor {
   url_anh: string; 
 
   @Column({ nullable: false })
+  content: string;
+
+  @Column({ nullable: false })
   editor_id: number;  // dùng để truy vấn xem ai viết bài
 
   @Column({ nullable: false }) 

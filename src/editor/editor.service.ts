@@ -27,6 +27,7 @@ export class EditorService {
     const newPost = this.editorRepository.create({
       title: payload.title,
       url_anh: payload.url_anh,
+      content: payload.content,
       editor_id: payload.editor_id,
       editor_realname: payload.editor_realname,
       status: 'ACTIVE',
@@ -75,6 +76,7 @@ export class EditorService {
     post.title = payload.title ?? post.title;
     post.url_anh = payload.url_anh ?? post.url_anh;
     post.update_at = new Date();
+    post.content = payload.content ?? post.content;
 
     const updated = await this.editorRepository.save(post);
     return { 
