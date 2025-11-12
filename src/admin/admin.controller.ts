@@ -37,6 +37,8 @@ import type {
   UpdateAccountStatusRequest,
   AccountSellResponse,
   ListAccountSellResponse,
+  AccountInformationResponse,
+  BuyAccountRequest
 } from '../../proto/admin.pb';
 import { EDITOR_SERVICE_NAME, CASHIER_SERVICE_NAME, FINANCE_SERVICE_NAME, PARTNER_SERVICE_NAME } from '../../proto/admin.pb';
 
@@ -174,5 +176,10 @@ export class AdminController {
   @GrpcMethod(PARTNER_SERVICE_NAME, 'MarkAccountAsSold')
   async markAccountAsSold(payload: UpdateAccountStatusRequest): Promise<AccountSellResponse> {
     return this.partnerService.markAccountAsSold(payload);
+  }
+
+  @GrpcMethod(PARTNER_SERVICE_NAME, 'BuyAccount')
+  async buyAccount(payload: BuyAccountRequest): Promise<AccountInformationResponse> {
+    return this.partnerService.buyAccount(payload);
   }
 }

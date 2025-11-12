@@ -12,14 +12,18 @@ import {
   UpdateAccountStatusRequest,
   AccountSellResponse,
   ListAccountSellResponse,
+  AccountInformationResponse,
+  BuyAccountRequest
 } from '../../proto/admin.pb';
 import { status } from '@grpc/grpc-js';
+import { PayService } from 'src/pay/pay.service';
 
 @Injectable()
 export class PartnerService {
   constructor(
     @InjectRepository(Partner)
     private readonly partnerRepository: Repository<Partner>,
+    private readonly payService: PayService,
   ) {}
 
   // ====== Tạo account sell ======
@@ -123,5 +127,40 @@ export class PartnerService {
         createdAt: updated.createdAt.toISOString(),
       },
     };
+  }
+
+  async buyAccount(payload: BuyAccountRequest): Promise<AccountInformationResponse> {
+    return await this.partnerRepository.manager.transaction(async (manager) => { // transaction roll back
+      const account = await manager.findOne(Partner, {
+        where: { id: payload.id },
+        lock: { mode: 'pessimistic_write' } // khoá row để tránh race condition tránh được 2 người mua cùng lúc.
+      });
+      if (!account) throw new RpcException({ status: status.NOT_FOUND, message: 'Không tìm thấy account' });
+
+      if (account.status === 'SOLD') {
+        throw new RpcException({
+          status: status.FAILED_PRECONDITION,
+          message: 'Tài khoản đã được bán cho người khác'
+        });
+      }
+
+      const payResp = await this.payService.getPay({userId: payload.user_id});
+      const userBalance = Number(payResp.pay?.tien) || 0;
+
+      if (account.price > userBalance) {
+        throw new RpcException({ status: status.FAILED_PRECONDITION, message: 'Số dư không đủ để mua tài khoản này' });
+      }
+
+      // tạm thời chưa transaction tiền ( sau này có thể bổ sung thêm transaction cho payservice )
+      await this.payService.updateMoney({userId: payload.user_id, amount: 0-account.price})
+
+      account.status = 'SOLD';
+      await manager.save(account);
+
+      return {
+        username: account.username,
+        password: account.password
+      };
+    });
   }
 }
