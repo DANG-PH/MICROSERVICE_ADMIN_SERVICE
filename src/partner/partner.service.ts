@@ -152,7 +152,11 @@ export class PartnerService {
       }
 
       // tạm thời chưa transaction tiền ( sau này có thể bổ sung thêm transaction cho payservice )
+
+      //Trừ tiền người mua nick
       await this.payService.updateMoney({userId: payload.user_id, amount: 0-account.price})
+      //Trừ tiền cộng tiền cho partner bán nick
+      await this.payService.updateMoney({userId: account.partner_id, amount: account.price*0.98})
 
       account.status = 'SOLD';
       await manager.save(account);
