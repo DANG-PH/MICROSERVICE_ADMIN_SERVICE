@@ -10,6 +10,7 @@ import { PartnerModule } from 'src/partner/partner.module';
 import { AdminModule } from './admin/admin.module';
 import { PayModule } from './pay/pay.module';
 import { RedisModule } from './redis/redis.module';
+import { AuthModule } from './auth/auth.module';
 
 @Module({
   imports: [
@@ -33,7 +34,8 @@ import { RedisModule } from './redis/redis.module';
     EditorModule,
     PartnerModule,
     PayModule,
-    RedisModule
+    RedisModule,
+    AuthModule
   ],
   controllers: [AppController],
   providers: [AppService],

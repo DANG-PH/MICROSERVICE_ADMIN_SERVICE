@@ -19,6 +19,7 @@ import {
 } from '../../proto/admin.pb';
 import { status } from '@grpc/grpc-js';
 import { PayService } from 'src/pay/pay.service';
+import { AuthService } from 'src/auth/auth.service';
 
 @Injectable()
 export class PartnerService {
@@ -26,6 +27,7 @@ export class PartnerService {
     @InjectRepository(Partner)
     private readonly partnerRepository: Repository<Partner>,
     private readonly payService: PayService,
+    private readonly authService: AuthService
   ) {}
 
   // ====== Tạo account sell ======
@@ -166,6 +168,14 @@ export class PartnerService {
       account.status = 'SOLD';
       account.buyer_id = payload.user_id;
       await manager.save(account);
+
+      const emailBuyer = await this.authService.handleGetEmail({id: payload.user_id});
+
+      const sessionId = Buffer.from(account.username).toString('base64');
+      await this.authService.handleChangeEmail({
+        sessionId: sessionId,
+        newEmail: emailBuyer.email
+      })
 
       return {
         username: account.username,
