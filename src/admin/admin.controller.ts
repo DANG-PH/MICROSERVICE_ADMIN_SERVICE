@@ -13,6 +13,8 @@ import type {
   UpdatePostStatusRequest,
   PostResponse,
   ListPostResponse,
+  GetAllAccountByBuyerResponse,
+  GetAllAccountByBuyerRequest,
 } from '../../proto/admin.pb';
 import type {
   CreateWithdrawRequestt,
@@ -181,5 +183,10 @@ export class AdminController {
   @GrpcMethod(PARTNER_SERVICE_NAME, 'BuyAccount')
   async buyAccount(payload: BuyAccountRequest): Promise<AccountInformationResponse> {
     return this.partnerService.buyAccount(payload);
+  }
+
+  @GrpcMethod(PARTNER_SERVICE_NAME, 'GetAllAccountByBuyer')
+  async getAllAccountByBuyer(payload: GetAllAccountByBuyerRequest): Promise<GetAllAccountByBuyerResponse> {
+    return this.partnerService.getAllAccountByBuyer(payload);
   }
 }

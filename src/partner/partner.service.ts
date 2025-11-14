@@ -13,7 +13,9 @@ import {
   AccountSellResponse,
   ListAccountSellResponse,
   AccountInformationResponse,
-  BuyAccountRequest
+  BuyAccountRequest,
+  GetAllAccountByBuyerRequest,
+  GetAllAccountByBuyerResponse
 } from '../../proto/admin.pb';
 import { status } from '@grpc/grpc-js';
 import { PayService } from 'src/pay/pay.service';
@@ -28,6 +30,9 @@ export class PartnerService {
 
   // ====== Tạo account sell ======
   async createAccountSell(payload: CreateAccountSellRequest): Promise<AccountSellResponse> {
+    const account = await this.partnerRepository.findOne({ where: { username: payload.username } });
+    if (account) throw new RpcException({ status: status.ALREADY_EXISTS, message: 'Account đã tồn tại' });
+
     const newAccount = this.partnerRepository.create({
       username: payload.username,
       password: payload.password,
@@ -140,7 +145,7 @@ export class PartnerService {
       if (account.status === 'SOLD') {
         throw new RpcException({
           status: status.FAILED_PRECONDITION,
-          message: 'Tài khoản đã được bán cho người khác'
+          message: 'Tài khoản đã được bán'
         });
       }
 
@@ -159,6 +164,7 @@ export class PartnerService {
       await this.payService.updateMoney({userId: account.partner_id, amount: account.price*0.98})
 
       account.status = 'SOLD';
+      account.buyer_id = payload.user_id;
       await manager.save(account);
 
       return {
@@ -166,5 +172,18 @@ export class PartnerService {
         password: account.password
       };
     });
+  }
+
+  async getAllAccountByBuyer(payload: GetAllAccountByBuyerRequest): Promise<GetAllAccountByBuyerResponse> {
+    const accounts = await this.partnerRepository.find({
+      where: { buyer_id: payload.buyer_id, status: 'SOLD' }
+    });
+
+    const mapped = accounts.map(acc => ({
+      username: acc.username,
+      password: acc.password,
+    }));
+
+    return { accounts: mapped };
   }
 }
