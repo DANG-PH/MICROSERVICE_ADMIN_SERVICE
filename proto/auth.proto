@@ -21,6 +21,9 @@ service AuthService {
   rpc ChangeRole (ChangeRoleRequest) returns (ChangeRoleResponse) {};
   rpc BanUser (BanUserRequest) returns (BanUserResponse) {};
   rpc UnbanUser (UnbanUserRequest) returns (UnbanUserResponse) {};
+
+  // admin service gọi khi check account có đủ điều kiện đăng bán không
+  rpc CheckAccount (LoginRequest) returns (LoginResponse) {};
 }
 
 // ===== MESSAGES =====

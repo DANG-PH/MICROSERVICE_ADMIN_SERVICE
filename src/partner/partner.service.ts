@@ -33,7 +33,14 @@ export class PartnerService {
   // ====== Tạo account sell ======
   async createAccountSell(payload: CreateAccountSellRequest): Promise<AccountSellResponse> {
     const account = await this.partnerRepository.findOne({ where: { username: payload.username } });
-    if (account) throw new RpcException({ status: status.ALREADY_EXISTS, message: 'Account đã tồn tại' });
+    if (account && account.status == "ACTIVE") throw new RpcException({ status: status.ALREADY_EXISTS, message: 'Account đã tồn tại' });
+
+    const sessionId = await this.authService.handleCheckAccount({
+      username: payload.username,
+      password: payload.password
+    })
+
+    if (!sessionId) throw new RpcException({ status: status.ALREADY_EXISTS, message: 'Account không tồn tại trong hệ thống hoặc sai mật khẩu' });
 
     const newAccount = this.partnerRepository.create({
       username: payload.username,
@@ -158,8 +165,23 @@ export class PartnerService {
         throw new RpcException({ status: status.FAILED_PRECONDITION, message: 'Số dư không đủ để mua tài khoản này' });
       }
 
-      // tạm thời chưa transaction tiền ( sau này có thể bổ sung thêm transaction cho payservice )
+      const emailBuyer = await this.authService.handleGetEmail({id: payload.user_id});
+      const newPassword = generateStrongPassword();
 
+      const sessionId = Buffer.from(account.username).toString('base64');
+
+      await this.authService.handleChangePassword({
+        sessionId: sessionId,
+        oldPassword: account.password,
+        newPassword: newPassword
+      })
+
+      await this.authService.handleChangeEmail({
+        sessionId: sessionId,
+        newEmail: emailBuyer.email
+      })
+
+      // tạm thời chưa transaction tiền ( sau này có thể bổ sung thêm transaction cho payservice )
       //Trừ tiền người mua nick
       await this.payService.updateMoney({userId: payload.user_id, amount: 0-account.price})
       //Trừ tiền cộng tiền cho partner bán nick
@@ -167,20 +189,15 @@ export class PartnerService {
 
       account.status = 'SOLD';
       account.buyer_id = payload.user_id;
+      account.password = newPassword;
       await manager.save(account);
-
-      const emailBuyer = await this.authService.handleGetEmail({id: payload.user_id});
-
-      const sessionId = Buffer.from(account.username).toString('base64');
-      await this.authService.handleChangeEmail({
-        sessionId: sessionId,
-        newEmail: emailBuyer.email
-      })
 
       return {
         username: account.username,
         password: account.password
       };
+      //Nếu 1 trong mấy service đó thất bại -> hệ thống mất đồng bộ.
+      // chỗ này cần transaction kỹ nếu có time
     });
   }
 
@@ -196,4 +213,30 @@ export class PartnerService {
 
     return { accounts: mapped };
   }
+}
+
+function generateStrongPassword(length = 14): string {
+  const lower = "abcdefghijklmnopqrstuvwxyz";
+  const upper = "ABCDEFGHIJKLMNOPQRSTUVWXYZ";
+  const numbers = "0123456789";
+  const special = "!@#$%^&*()_+-=[]{};:,.<>?";
+
+  const all = lower + upper + numbers + special;
+
+  // Bắt buộc mỗi loại 1 ký tự
+  let password = [
+    lower[Math.floor(Math.random() * lower.length)],
+    upper[Math.floor(Math.random() * upper.length)],
+    numbers[Math.floor(Math.random() * numbers.length)],
+    special[Math.floor(Math.random() * special.length)],
+  ];
+
+  // Sinh phần còn lại
+  for (let i = 0; i < length-4; i++) {
+    const randIndex = Math.floor(Math.random() * all.length);
+    password.push(all[randIndex]);
+  }
+
+  // Trộn ngẫu nhiên
+  return password.join('');
 }

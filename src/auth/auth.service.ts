@@ -6,6 +6,9 @@ import {
   AUTH_PACKAGE_NAME,
   AUTH_SERVICE_NAME,
   AuthServiceClient,
+  ChangePasswordRequest,
+  LoginRequest,
+  LoginResponse
 } from 'proto/auth.pb';
 import { winstonLogger } from 'src/logger/logger.config'; 
 import { firstValueFrom } from 'rxjs';
@@ -29,6 +32,14 @@ export class AuthService {
 
   async handleGetEmail(req: GetEmailUserRequest) {
     return firstValueFrom(this.authGrpcService.getEmailUser(req));
+  }
+
+  async handleChangePassword(req: ChangePasswordRequest) {
+    return firstValueFrom(this.authGrpcService.changePassword(req));
+  }
+
+  async handleCheckAccount(req: LoginRequest): Promise<LoginResponse> {
+    return firstValueFrom(this.authGrpcService.checkAccount(req));
   }
 }
 

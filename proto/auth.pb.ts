@@ -172,6 +172,10 @@ export interface AuthServiceClient {
   banUser(request: BanUserRequest, metadata?: Metadata): Observable<BanUserResponse>;
 
   unbanUser(request: UnbanUserRequest, metadata?: Metadata): Observable<UnbanUserResponse>;
+
+  /** admin service gọi khi check account có đủ điều kiện đăng bán không */
+
+  checkAccount(request: LoginRequest, metadata?: Metadata): Observable<LoginResponse>;
 }
 
 /** ===== SERVICE DEFINITION ===== */
@@ -209,6 +213,10 @@ export interface AuthServiceController {
   banUser(request: BanUserRequest, metadata?: Metadata): Observable<BanUserResponse>;
 
   unbanUser(request: UnbanUserRequest, metadata?: Metadata): Observable<UnbanUserResponse>;
+
+  /** admin service gọi khi check account có đủ điều kiện đăng bán không */
+
+  checkAccount(request: LoginRequest, metadata?: Metadata): Observable<LoginResponse>;
 }
 
 export function AuthServiceControllerMethods() {
@@ -227,6 +235,7 @@ export function AuthServiceControllerMethods() {
       "changeRole",
       "banUser",
       "unbanUser",
+      "checkAccount",
     ];
     for (const method of grpcMethods) {
       const descriptor: any = Reflect.getOwnPropertyDescriptor(constructor.prototype, method);
