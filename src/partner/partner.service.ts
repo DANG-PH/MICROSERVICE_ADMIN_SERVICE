@@ -35,12 +35,19 @@ export class PartnerService {
     const account = await this.partnerRepository.findOne({ where: { username: payload.username } });
     if (account && account.status == "ACTIVE") throw new RpcException({ status: status.ALREADY_EXISTS, message: 'Account đã tồn tại' });
 
-    const sessionId = await this.authService.handleCheckAccount({
-      username: payload.username,
-      password: payload.password
-    })
-
-    if (!sessionId) throw new RpcException({ status: status.ALREADY_EXISTS, message: 'Account không tồn tại trong hệ thống hoặc sai mật khẩu' });
+    try {
+      await this.authService.handleCheckAccount({
+        username: payload.username,
+        password: payload.password
+      })
+    } catch (err) {
+      // gRPC error từ service B
+      // err thường có dạng { code, details, metadata }
+      if (err.code && err.details) {
+        throw new RpcException({ status: err.code, message: err.details });
+      }
+      throw err; // fallback
+    }
 
     const newAccount = this.partnerRepository.create({
       username: payload.username,
