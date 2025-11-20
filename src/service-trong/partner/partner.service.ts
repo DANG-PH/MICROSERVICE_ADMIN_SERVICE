@@ -16,10 +16,10 @@ import {
   BuyAccountRequest,
   GetAllAccountByBuyerRequest,
   GetAllAccountByBuyerResponse
-} from '../../proto/admin.pb';
+} from '../../../proto/admin.pb';
 import { status } from '@grpc/grpc-js';
-import { PayService } from 'src/pay/pay.service';
-import { AuthService } from 'src/auth/auth.service';
+import { PayService } from 'src/service-ngoai/pay/pay.service';
+import { AuthService } from 'src/service-ngoai/auth/auth.service';
 
 @Injectable()
 export class PartnerService {
@@ -32,11 +32,15 @@ export class PartnerService {
 
   // ====== Tạo account sell ======
   async createAccountSell(payload: CreateAccountSellRequest): Promise<AccountSellResponse> {
+    if (payload.partner_username === payload.username) {
+      throw new RpcException({ status: status.CANCELLED, message: "Không thể tự bán acc của chính mình" });
+    }
+
     const account = await this.partnerRepository.findOne({ where: { username: payload.username } });
     if (account && account.status == "ACTIVE") throw new RpcException({ status: status.ALREADY_EXISTS, message: 'Account đã tồn tại' });
 
     try {
-      await this.authService.handleCheckAccount({
+      const accountBan = await this.authService.handleCheckAccount({
         username: payload.username,
         password: payload.password
       })

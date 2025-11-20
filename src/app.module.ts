@@ -3,14 +3,13 @@ import { AppController } from './app.controller';
 import { AppService } from './app.service';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { ConfigModule } from '@nestjs/config';
-import { FinanceModule } from 'src/finance/finance.module';
-import { CashierModule } from 'src/cashier/cashier.module';
-import { EditorModule } from 'src/editor/editor.module';
-import { PartnerModule } from 'src/partner/partner.module';
-import { AdminModule } from './admin/admin.module';
-import { PayModule } from './pay/pay.module';
+import { CashierModule } from 'src/service-trong/cashier/cashier.module';
+import { EditorModule } from 'src/service-trong/editor/editor.module';
+import { PartnerModule } from 'src/service-trong/partner/partner.module';
+import { AdminModule } from './service-trong/admin/admin.module';
+import { PayModule } from './service-ngoai/pay/pay.module';
 import { RedisModule } from './redis/redis.module';
-import { AuthModule } from './auth/auth.module';
+import { AuthModule } from './service-ngoai/auth/auth.module';
 
 @Module({
   imports: [
@@ -29,7 +28,6 @@ import { AuthModule } from './auth/auth.module';
       synchronize: true, 
     }),
     AdminModule,
-    FinanceModule,
     CashierModule,
     EditorModule,
     PartnerModule,

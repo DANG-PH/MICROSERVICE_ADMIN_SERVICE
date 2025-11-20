@@ -11,7 +11,15 @@ import {
     PAY_PACKAGE_NAME,
     PAY_SERVICE_NAME,
     PayServiceClient,
-    Pay
+    Pay,
+    CreateFinanceRequest,
+    GetFinanceByUserRequest,
+    FinanceResponse,
+    ListFinanceResponse,
+    FinanceSummaryResponse,
+    FINANCE_SERVICE_NAME,
+    FinanceServiceClient,
+    Empty
 } from 'proto/pay.pb';
 import { firstValueFrom } from 'rxjs';
 
@@ -19,6 +27,7 @@ import { firstValueFrom } from 'rxjs';
 export class PayService {
   private readonly logger = new Logger(PayService.name);
   private payGrpcService: PayServiceClient;
+  private financeGrpcService: FinanceServiceClient;
 
   constructor(
     @Inject(PAY_PACKAGE_NAME) private readonly client: ClientGrpc,
@@ -26,6 +35,7 @@ export class PayService {
 
   onModuleInit() {
     this.payGrpcService = this.client.getService<PayServiceClient>(PAY_SERVICE_NAME);
+    this.financeGrpcService = this.client.getService<FinanceServiceClient>(FINANCE_SERVICE_NAME);
   }
 
   async getPay(req: GetPayByUserIdRequest): Promise<PayResponse> {
@@ -46,5 +56,25 @@ export class PayService {
 
   async getQr(req: CreatePayOrderRequest): Promise<QrResponse> {
     return firstValueFrom(this.payGrpcService.createPayOrder(req));
+  }
+
+  /* Ghi lại dòng tiền khi nạp hoặc rút thành công */
+  async handleCreateFinanceRecord(req: CreateFinanceRequest) {
+    return firstValueFrom(this.financeGrpcService.createFinanceRecord(req));
+  }
+
+  /* Lấy danh sách giao dịch của 1 user */
+  async handleGetFinanceByUser(req: GetFinanceByUserRequest) {
+    return firstValueFrom(this.financeGrpcService.getFinanceByUser(req));
+  }
+
+  /* Lấy tất cả giao dịch (dành cho admin) */
+  async handleGetAllFinance(req: Empty) {
+    return firstValueFrom(this.financeGrpcService.getAllFinance(req));
+  }
+
+  /* Thống kê tổng nạp, tổng rút và số dư */
+  async handleGetFinanceSummary(req: Empty) {
+    return firstValueFrom(this.financeGrpcService.getFinanceSummary(req));
   }
 }

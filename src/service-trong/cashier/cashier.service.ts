@@ -2,7 +2,7 @@ import { Injectable, Inject } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { Cashier } from './cashier.entity';
-import { PayService } from 'src/pay/pay.service';
+import { PayService } from 'src/service-ngoai/pay/pay.service';
 import { RpcException } from '@nestjs/microservices';
 import {
   CreateWithdrawRequestt,
@@ -10,9 +10,9 @@ import {
   UpdateWithdrawStatusRequest,
   WithdrawResponse,
   ListWithdrawResponse,
-} from '../../proto/admin.pb';
+} from '../../../proto/admin.pb';
 import { status } from '@grpc/grpc-js';
-import { FinanceService } from 'src/finance/finance.service';
+// import { FinanceService } from 'src/finance/finance.service';
 import { winstonLogger } from 'src/logger/logger.config';
 import { CACHE_MANAGER } from '@nestjs/cache-manager';
 import type { Cache } from 'cache-manager';
@@ -23,7 +23,7 @@ export class CashierService {
     @InjectRepository(Cashier)
     private readonly cashierRepository: Repository<Cashier>,
     private readonly payService: PayService,
-    private readonly financeService: FinanceService,
+    // private readonly financeService: FinanceService,
     @Inject(CACHE_MANAGER) private cacheManager: Cache
   ) {}
    // ====== Tạo yêu cầu rút tiền ======
@@ -101,7 +101,7 @@ export class CashierService {
     const key = `rut_tien:${withdraw.user_id}:${withdraw.id}`;;
     await this.cacheManager.del(key)
     
-    await this.financeService.createFinanceRecord(
+    await this.payService.handleCreateFinanceRecord(
       {
         amount: updated.amount,
         type: "RUT",

@@ -1,9 +1,8 @@
 import { Controller } from '@nestjs/common';
 import { GrpcMethod } from '@nestjs/microservices';
-import { CashierService } from 'src/cashier/cashier.service';
-import { FinanceService } from 'src/finance/finance.service';
-import { PartnerService } from 'src/partner/partner.service';
-import { EditorService } from 'src/editor/editor.service';
+import { CashierService } from 'src/service-trong/cashier/cashier.service';
+import { PartnerService } from 'src/service-trong/partner/partner.service';
+import { EditorService } from 'src/service-trong/editor/editor.service';
 import type {
   CreatePostRequest,
   DeletePostRequest,
@@ -15,21 +14,14 @@ import type {
   ListPostResponse,
   GetAllAccountByBuyerResponse,
   GetAllAccountByBuyerRequest,
-} from '../../proto/admin.pb';
+} from '../../../proto/admin.pb';
 import type {
   CreateWithdrawRequestt,
   GetWithdrawsByUserRequest,
   UpdateWithdrawStatusRequest,
   WithdrawResponse,
   ListWithdrawResponse,
-} from '../../proto/admin.pb';
-import type {
-  CreateFinanceRequest,
-  GetFinanceByUserRequest,
-  FinanceResponse,
-  ListFinanceResponse,
-  FinanceSummaryResponse,
-} from '../../proto/admin.pb';
+} from '../../../proto/admin.pb';
 import type {
   CreateAccountSellRequest,
   UpdateAccountSellRequest,
@@ -41,14 +33,16 @@ import type {
   ListAccountSellResponse,
   AccountInformationResponse,
   BuyAccountRequest
-} from '../../proto/admin.pb';
-import { EDITOR_SERVICE_NAME, CASHIER_SERVICE_NAME, FINANCE_SERVICE_NAME, PARTNER_SERVICE_NAME } from '../../proto/admin.pb';
+} from '../../../proto/admin.pb';
+import { EDITOR_SERVICE_NAME, 
+         CASHIER_SERVICE_NAME, 
+         PARTNER_SERVICE_NAME 
+} from '../../../proto/admin.pb';
 
 @Controller()
 export class AdminController {
   constructor(
     private readonly cashierService: CashierService,
-    private readonly financeService: FinanceService,
     private readonly partnerService: PartnerService,
     private readonly editorService: EditorService
   ) {}
@@ -120,29 +114,6 @@ export class AdminController {
   async rejectWithdraw(payload: UpdateWithdrawStatusRequest): Promise<WithdrawResponse> {
     return this.cashierService.rejectWithdraw(payload);
   }
-
-
-  // ===== Finance RPC =====
-  @GrpcMethod(FINANCE_SERVICE_NAME, 'CreateFinanceRecord')
-  async createFinanceRecord(payload: CreateFinanceRequest): Promise<FinanceResponse> {
-    return this.financeService.createFinanceRecord(payload);
-  }
-
-  @GrpcMethod(FINANCE_SERVICE_NAME, 'GetFinanceByUser')
-  async getFinanceByUser(payload: GetFinanceByUserRequest): Promise<ListFinanceResponse> {
-    return this.financeService.getFinanceByUser(payload);
-  }
-
-  @GrpcMethod(FINANCE_SERVICE_NAME, 'GetAllFinance')
-  async getAllFinance(): Promise<ListFinanceResponse> {
-    return this.financeService.getAllFinance();
-  }
-
-  @GrpcMethod(FINANCE_SERVICE_NAME, 'GetFinanceSummary')
-  async getFinanceSummary(): Promise<FinanceSummaryResponse> {
-    return this.financeService.getFinanceSummary();
-  }
-  
 
   // ===== Partner RPC =====
   @GrpcMethod(PARTNER_SERVICE_NAME, 'CreateAccountSell')

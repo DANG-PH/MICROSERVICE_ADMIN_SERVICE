@@ -11,7 +11,7 @@ import {
   UpdatePostStatusRequest,
   PostResponse,
   ListPostResponse,
-} from '../../proto/admin.pb';
+} from '../../../proto/admin.pb';
 import { RpcException } from '@nestjs/microservices';
 import { status } from '@grpc/grpc-js';
 
