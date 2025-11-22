@@ -1,3 +1,5 @@
+import * as dotenv from 'dotenv';
+dotenv.config();
 import { NestFactory } from '@nestjs/core';
 import { AppModule } from './app.module';
 import { MicroserviceOptions, Transport } from '@nestjs/microservices';
@@ -6,8 +8,6 @@ import { Logger } from '@nestjs/common';
 import { ADMIN_PACKAGE_NAME } from 'proto/admin.pb';
 
 async function bootstrap() {
-  const logger = new Logger('Bootstrap');
-
   const app = await NestFactory.create(AppModule);
 
   app.connectMicroservice<MicroserviceOptions>({
@@ -15,7 +15,7 @@ async function bootstrap() {
     options: {
       package: ADMIN_PACKAGE_NAME,
       protoPath: join(process.cwd(), 'proto/admin.proto'), 
-      url: '0.0.0.0:50056', 
+      url: process.env.ADMIN_URL, 
       loader: {
         keepCase: true,
         objects: true,
@@ -25,10 +25,10 @@ async function bootstrap() {
   });
 
   await app.startAllMicroservices();
-  logger.log('✅ gRPC server running on localhost:50056');
+  console.log(`✅ gRPC server running on ${process.env.ADMIN_URL}`);
 
-  await app.listen(process.env.PORT ?? 3006);
-  logger.log(`✅ HTTP server running on ${process.env.PORT ?? 3006}`);
+  await app.listen(Number(process.env.PORT));
+  console.log(`✅ HTTP server running on ${process.env.PORT}`);
 }
 
 bootstrap();

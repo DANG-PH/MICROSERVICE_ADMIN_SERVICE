@@ -13,7 +13,7 @@ import { AuthService } from './auth.service';
         options: {
           package: AUTH_PACKAGE_NAME,
           protoPath: join(process.cwd(), 'proto/auth.proto'),
-          url: "localhost:50051",
+          url: process.env.AUTH_URL,
           loader: {
             keepCase: true,
             objects: true,

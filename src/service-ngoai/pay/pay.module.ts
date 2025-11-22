@@ -13,7 +13,7 @@ import { PayService } from './pay.service';
         options: {
           package: PAY_PACKAGE_NAME,
           protoPath: join(process.cwd(), 'proto/pay.proto'),
-          url: "cnozomi.proxy.rlwy.net:42969",
+          url: process.env.PAY_URL,
           loader: {
                 keepCase: true,
                 objects: true,

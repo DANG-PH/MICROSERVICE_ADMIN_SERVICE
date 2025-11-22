@@ -23,6 +23,7 @@
   "dependencies": {
     "@grpc/grpc-js": "^1.14.1",
     "@grpc/proto-loader": "^0.8.0",
+    "@keyv/redis": "^5.1.4",
     "@nestjs/cache-manager": "^3.0.1",
     "@nestjs/common": "^11.0.1",
     "@nestjs/config": "^4.0.2",
@@ -33,6 +34,7 @@
     "axios": "^1.13.2",
     "cache-manager": "^7.2.4",
     "cache-manager-ioredis-yet": "^2.1.2",
+    "cacheable": "^2.2.0",
     "ioredis": "^5.8.2",
     "mysql2": "^3.15.3",
     "nest-winston": "^1.10.2",
