@@ -8,6 +8,8 @@ import { Logger } from '@nestjs/common';
 import { ADMIN_PACKAGE_NAME } from 'proto/admin.pb';
 
 async function bootstrap() {
+  const logger = new Logger('Bootstrap');
+
   const app = await NestFactory.create(AppModule);
 
   app.connectMicroservice<MicroserviceOptions>({
@@ -25,10 +27,10 @@ async function bootstrap() {
   });
 
   await app.startAllMicroservices();
-  console.log(`✅ gRPC server running on ${process.env.ADMIN_URL}`);
+  logger.log(`✅ gRPC server running on ${process.env.ADMIN_URL}`);
 
   await app.listen(Number(process.env.PORT));
-  console.log(`✅ HTTP server running on ${process.env.PORT}`);
+  logger.log(`✅ HTTP server running on ${process.env.PORT}`);
 }
 
 bootstrap();
