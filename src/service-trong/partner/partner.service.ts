@@ -162,6 +162,13 @@ export class PartnerService {
       });
       if (!account) throw new RpcException({ status: status.NOT_FOUND, message: 'Không tìm thấy account' });
 
+      if (account.username == payload.username) {
+          throw new RpcException({
+          status: status.FAILED_PRECONDITION,
+          message: 'Không thể tự mua acc chính mình'
+        });
+      }
+
       if (account.status === 'SOLD') {
         throw new RpcException({
           status: status.FAILED_PRECONDITION,
@@ -169,7 +176,16 @@ export class PartnerService {
         });
       }
 
-      const payResp = await this.payService.getPay({userId: payload.user_id});
+      let payResp;
+      try {
+        payResp = await this.payService.getPay({userId: payload.user_id});
+      } catch (err) {
+        if (err.code && err.details) {
+          throw new RpcException({ status: err.code, message: err.details });
+        }
+        throw err; 
+      }
+
       const userBalance = Number(payResp.pay?.tien) || 0;
 
       if (account.price > userBalance) {
