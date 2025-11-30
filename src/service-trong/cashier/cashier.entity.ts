@@ -1,6 +1,6 @@
 import { Entity, PrimaryGeneratedColumn, Column, CreateDateColumn } from 'typeorm';
 
-@Entity('withdraw-money')
+@Entity('withdraw_money')
 export class Cashier {
   @PrimaryGeneratedColumn()
   id: number;

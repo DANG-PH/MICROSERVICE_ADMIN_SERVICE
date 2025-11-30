@@ -11,8 +11,11 @@ export class Editor {
   @Column({ nullable: false })
   url_anh: string; 
 
-  @Column({ type: 'longtext', nullable: false })
-  content: string;
+  // @Column({ type: 'longtext', nullable: false })
+  // content: string; // mysql su dung longtext, postgre thi dung text la du ( vi k co long text )
+
+  @Column({ type: 'text', nullable: false })
+  content: string; 
 
   @Column({ nullable: false })
   editor_id: number;  // dùng để truy vấn xem ai viết bài
