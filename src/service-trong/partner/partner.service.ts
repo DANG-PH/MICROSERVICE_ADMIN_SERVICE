@@ -1,4 +1,4 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, Inject } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { Partner } from './partner.entity';
@@ -20,6 +20,9 @@ import {
 import { status } from '@grpc/grpc-js';
 import { PayService } from 'src/service-ngoai/pay/pay.service';
 import { AuthService } from 'src/service-ngoai/auth/auth.service';
+import { CACHE_MANAGER } from '@nestjs/cache-manager';
+import { Cache } from '@nestjs/cache-manager';
+import { RedisAccountService } from 'src/redis/redis-low.service';
 
 @Injectable()
 export class PartnerService {
@@ -27,7 +30,9 @@ export class PartnerService {
     @InjectRepository(Partner)
     private readonly partnerRepository: Repository<Partner>,
     private readonly payService: PayService,
-    private readonly authService: AuthService
+    private readonly authService: AuthService,
+    @Inject(CACHE_MANAGER) private cacheManager: Cache,
+    private readonly redisAccountService: RedisAccountService
   ) {}
 
   // ====== Tạo account sell ======
@@ -65,6 +70,12 @@ export class PartnerService {
     });
 
     const saved = await this.partnerRepository.save(newAccount);
+
+    await this.cacheManager.set(
+      `account:${saved.id}`,
+      JSON.stringify({ status: 'ACTIVE', buyerId: null })
+    );  // chuẩn bị cho redis + lua script
+
     return {
       account: {
         ...saved,
@@ -97,6 +108,9 @@ export class PartnerService {
     if (!account) throw new RpcException({ status: status.NOT_FOUND, message: 'Không tìm thấy account' });
 
     await this.partnerRepository.remove(account);
+
+    await this.cacheManager.del(`account:${account.id}`); // chuẩn bị cho redis + lua
+
     return {
       account: {
         ...account,
@@ -226,6 +240,127 @@ export class PartnerService {
       //Nếu 1 trong mấy service đó thất bại -> hệ thống mất đồng bộ.
       // chỗ này cần transaction kỹ nếu có time
     });
+  }
+
+  // Orchestration Saga ( bổ sung cho cách buyaccount ở trên) ( Còn 1 cách nữa là Choreography Saga có thể bổ sung sau)
+  async buyAccountSaga(payload: BuyAccountRequest): Promise<AccountInformationResponse> {
+    // Cách Permisstic Lock
+
+    // Step 1: lock DB row
+    // const account = await this.partnerRepository.manager.transaction(async (manager) => {
+    //   const acc = await manager.findOne(Partner, {
+    //     where: { id: payload.id },
+    //     lock: { mode: 'pessimistic_write' },
+    //   });
+
+    //   if (!acc) throw new RpcException({ status: status.NOT_FOUND, message: 'Không tìm thấy account' });
+    //   if (acc.username === payload.username)
+    //     throw new RpcException({ status: status.FAILED_PRECONDITION, message: 'Không thể tự mua acc chính mình' });
+    //   if (acc.status === 'SOLD')
+    //     throw new RpcException({ status: status.FAILED_PRECONDITION, message: 'Tài khoản đã được bán' });
+
+    //   return acc;
+    // });
+
+    // Cách Redis + Lua Script
+    // Step 1: reserve account atomically
+    const reserved = await this.redisAccountService.reserveAccount(payload.id, payload.user_id);
+    if (!reserved) {
+      throw new RpcException({ status: status.FAILED_PRECONDITION, message: 'Account đã được bán hoặc đang xử lý' });
+    }
+
+    const account = await this.partnerRepository.findOne({ where: { id: payload.id } });
+    if (!account) throw new RpcException({ status: status.NOT_FOUND, message: 'Không tìm thấy account' });
+    if (account.username === payload.username)
+      throw new RpcException({ status: status.FAILED_PRECONDITION, message: 'Không thể tự mua acc chính mình' });
+
+
+    // Step 2: check user balance
+    let payResp;
+    try {
+      payResp = await this.payService.getPay({ userId: payload.user_id });
+    } catch (err) {
+      if (err.code && err.details) throw new RpcException({ status: err.code, message: err.details });
+      throw err;
+    }
+
+    const userBalance = Number(payResp.pay?.tien) || 0;
+    if (account.price > userBalance)
+      throw new RpcException({ status: status.FAILED_PRECONDITION, message: 'Số dư không đủ để mua tài khoản này' });
+
+    const emailBuyer = await this.authService.handleGetEmail({ id: payload.user_id });
+    const emailNguoiBan = await this.authService.handleGetEmail({ id: account.partner_id });
+    const newPassword = generateStrongPassword();
+    const sessionId = Buffer.from(account.username).toString('base64');
+
+    // Step 3: Saga orchestration with compensating actions
+    let buyerPaid = false;
+    let sellerPaid = false;
+    let passwordChanged = false;
+    let emailChanged = false;
+
+    try {
+      // Trừ tiền người mua
+      await this.payService.updateMoney({ userId: payload.user_id, amount: -account.price });
+      buyerPaid = true;
+
+      // Cộng tiền cho seller
+      await this.payService.updateMoney({ userId: account.partner_id, amount: account.price * 0.98 });
+      sellerPaid = true;
+
+      // Change password
+      await this.authService.handleChangePassword({
+        sessionId,
+        oldPassword: account.password,
+        newPassword,
+      });
+      passwordChanged = true;
+
+      // Change email
+      await this.authService.handleChangeEmail({
+        sessionId,
+        newEmail: emailBuyer.email,
+      });
+      emailChanged = true;
+
+      // Step 4: update DB
+      await this.partnerRepository.manager.transaction(async (manager) => {
+        account.status = 'SOLD';
+        account.buyer_id = payload.user_id;
+        account.password = newPassword;
+        await manager.save(account);
+      });
+
+      return { username: account.username, password: newPassword };
+    } catch (err) {
+      // Step 5: compensating actions
+      if (emailChanged) {
+        await this.authService.handleChangeEmail({
+          sessionId,
+          newEmail: emailNguoiBan.email, // rollback về email cũ
+        }).catch(() => {});
+      }
+
+      if (passwordChanged) {
+        await this.authService.handleChangePassword({
+          sessionId,
+          oldPassword: newPassword,
+          newPassword: account.password, // rollback password cũ
+        }).catch(() => {});
+      }
+
+      if (sellerPaid) {
+        await this.payService.updateMoney({ userId: account.partner_id, amount: -account.price * 0.98 }).catch(() => {});
+      }
+
+      if (buyerPaid) {
+        await this.payService.updateMoney({ userId: payload.user_id, amount: account.price }).catch(() => {});
+      }
+
+      await this.redisAccountService.rollbackAccount(payload.id); // rollback redis + lua
+
+      throw err; // rethrow để caller biết
+    }
   }
 
   async getAllAccountByBuyer(payload: GetAllAccountByBuyerRequest): Promise<GetAllAccountByBuyerResponse> {
