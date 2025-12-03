@@ -10,6 +10,7 @@ import { AdminModule } from './service-trong/admin/admin.module';
 import { PayModule } from './service-ngoai/pay/pay.module';
 import { RedisModule } from './redis/redis.module';
 import { AuthModule } from './service-ngoai/auth/auth.module';
+import { RedisLowModule } from './redis/redis-low.module';
 
 @Module({
   imports: [
@@ -44,7 +45,8 @@ import { AuthModule } from './service-ngoai/auth/auth.module';
     PartnerModule,
     PayModule,
     RedisModule,
-    AuthModule
+    AuthModule,
+    RedisLowModule
   ],
   controllers: [AppController],
   providers: [AppService],

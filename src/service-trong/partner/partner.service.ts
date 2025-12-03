@@ -23,17 +23,21 @@ import { AuthService } from 'src/service-ngoai/auth/auth.service';
 import { CACHE_MANAGER } from '@nestjs/cache-manager';
 import { Cache } from '@nestjs/cache-manager';
 import { RedisAccountService } from 'src/redis/redis-low.service';
+import Redis from 'ioredis';
 
 @Injectable()
 export class PartnerService {
+  private redis: Redis;
   constructor(
     @InjectRepository(Partner)
     private readonly partnerRepository: Repository<Partner>,
     private readonly payService: PayService,
     private readonly authService: AuthService,
     @Inject(CACHE_MANAGER) private cacheManager: Cache,
-    private readonly redisAccountService: RedisAccountService
-  ) {}
+    private readonly redisAccountService: RedisAccountService,
+  ) {
+    this.redis = new Redis(process.env.REDIS_URL || '');
+  }
 
   // ====== Tạo account sell ======
   async createAccountSell(payload: CreateAccountSellRequest): Promise<AccountSellResponse> {
@@ -299,14 +303,43 @@ export class PartnerService {
     let passwordChanged = false;
     let emailChanged = false;
 
+    await this.cacheManager.set(
+      `saga:buyAccount:${payload.user_id}:${payload.id}`,
+      JSON.stringify({
+        buyerPaid: false,
+        sellerPaid: false,
+        passwordChanged: false,
+        emailChanged: false
+      })
+    );  // nếu crash server thì vẫn xử lí đc
+
+
     try {
       // Trừ tiền người mua
       await this.payService.updateMoney({ userId: payload.user_id, amount: -account.price });
       buyerPaid = true;
+      await this.cacheManager.set(
+        `saga:buyAccount:${payload.user_id}:${payload.id}`,
+        JSON.stringify({
+          buyerPaid: buyerPaid,
+          sellerPaid: sellerPaid,
+          passwordChanged: passwordChanged,
+          emailChanged: emailChanged
+        })
+      ); 
 
       // Cộng tiền cho seller
       await this.payService.updateMoney({ userId: account.partner_id, amount: account.price * 0.98 });
       sellerPaid = true;
+      await this.cacheManager.set(
+        `saga:buyAccount:${payload.user_id}:${payload.id}`,
+        JSON.stringify({
+          buyerPaid: buyerPaid,
+          sellerPaid: sellerPaid,
+          passwordChanged: passwordChanged,
+          emailChanged: emailChanged
+        })
+      ); 
 
       // Change password
       await this.authService.handleChangePassword({
@@ -315,6 +348,15 @@ export class PartnerService {
         newPassword,
       });
       passwordChanged = true;
+      await this.cacheManager.set(
+        `saga:buyAccount:${payload.user_id}:${payload.id}`,
+        JSON.stringify({
+          buyerPaid: buyerPaid,
+          sellerPaid: sellerPaid,
+          passwordChanged: passwordChanged,
+          emailChanged: emailChanged
+        })
+      ); 
 
       // Change email
       await this.authService.handleChangeEmail({
@@ -322,6 +364,15 @@ export class PartnerService {
         newEmail: emailBuyer.email,
       });
       emailChanged = true;
+      await this.cacheManager.set(
+        `saga:buyAccount:${payload.user_id}:${payload.id}`,
+        JSON.stringify({
+          buyerPaid: buyerPaid,
+          sellerPaid: sellerPaid,
+          passwordChanged: passwordChanged,
+          emailChanged: emailChanged
+        })
+      ); 
 
       // Step 4: update DB
       await this.partnerRepository.manager.transaction(async (manager) => {
@@ -330,6 +381,9 @@ export class PartnerService {
         account.password = newPassword;
         await manager.save(account);
       });
+
+      await this.cacheManager.del(`account:${account.id}`);
+      await this.cacheManager.del(`saga:buyAccount:${payload.user_id}:${payload.id}`);
 
       return { username: account.username, password: newPassword };
     } catch (err) {
@@ -374,6 +428,35 @@ export class PartnerService {
     }));
 
     return { accounts: mapped };
+  }
+
+  async recoverSaga() {
+    const keys = await this.redis.keys('hdgstudio::hdgstudio:saga:buyAccount:*');
+    console.log(keys)
+    for (const key of keys) {
+      console.log(key)
+      const saga = JSON.parse(await this.redis.get(key) || '{}');
+      const [, userId, accountId] = key.split(':').slice(-3);
+      const sessionId = Buffer.from(accountId).toString('base64');
+      const account = await this.partnerRepository.findOne({ where: { id: Number(accountId) } });
+      if (!account) continue;
+      const sellerEmail = await this.authService.handleGetEmail({ id: Number(account.partner_id) });
+
+      if (saga.emailChanged) await this.authService.handleChangeEmail({ sessionId, newEmail: sellerEmail.email }).catch(() => {});
+      // if (saga.passwordChanged) await this.authService.handleChangePassword({ sessionId, oldPassword: generateStrongPassword(), newPassword: account.password }).catch(() => {}); // sai logic 1 chut nhung co email thi ko sao
+      if (saga.sellerPaid) await this.payService.updateMoney({ userId: account.partner_id, amount: -account.price * 0.98 }).catch(() => {});
+      if (saga.buyerPaid) await this.payService.updateMoney({ userId: Number(userId), amount: account.price }).catch(() => {});
+
+      await this.redis.del(key);
+    }
+  }
+
+  async onModuleInit() {
+    try {
+      await this.recoverSaga();
+    } catch (err) {
+      console.error('Error recovering saga:', err);
+    }
   }
 }
 
