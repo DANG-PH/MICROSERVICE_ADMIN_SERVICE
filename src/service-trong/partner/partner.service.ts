@@ -413,7 +413,7 @@ export class PartnerService {
 
       await this.redisAccountService.rollbackAccount(payload.id); // rollback redis + lua
 
-      throw err; // rethrow để caller biết
+      throw new RpcException({status: status.INTERNAL, message: err}); // rethrow để caller biết
     }
   }
 
