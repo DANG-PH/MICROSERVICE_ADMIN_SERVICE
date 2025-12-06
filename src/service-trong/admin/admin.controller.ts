@@ -153,7 +153,7 @@ export class AdminController {
 
   @GrpcMethod(PARTNER_SERVICE_NAME, 'BuyAccount')
   async buyAccount(payload: BuyAccountRequest): Promise<AccountInformationResponse> {
-    return this.partnerService.buyAccountSaga(payload);
+    return this.partnerService.buyAccount(payload);
   }
 
   @GrpcMethod(PARTNER_SERVICE_NAME, 'GetAllAccountByBuyer')
