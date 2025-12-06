@@ -30,6 +30,10 @@ export class CashierService {
   async createWithdrawRequest(payload: CreateWithdrawRequestt): Promise<WithdrawResponse> {
     // 1. Kiểm tra số dư của người dùng
     const payResp = await this.payService.getPay({userId: payload.user_id});
+
+    if (!payResp.pay) throw new RpcException({ status: status.NOT_FOUND, message: 'Không tìm thấy ví, vui lòng liên hệ admin để xử lí' });
+
+    if (payResp.pay.status.toLowerCase() == "lock") throw new RpcException({ status: status.INVALID_ARGUMENT, message: 'Tài khoản đã bị khóa, không thể rút tiền' });
     const userBalance = Number(payResp.pay?.tien) || 0;
 
     if (payload.amount > userBalance) {
