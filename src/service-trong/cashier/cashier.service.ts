@@ -33,7 +33,7 @@ export class CashierService {
 
     if (!payResp.pay) throw new RpcException({ status: status.NOT_FOUND, message: 'Không tìm thấy ví, vui lòng liên hệ admin để xử lí' });
 
-    if (payResp.pay.status.toLowerCase() == "lock") throw new RpcException({ status: status.INVALID_ARGUMENT, message: 'Tài khoản đã bị khóa, không thể rút tiền' });
+    if (payResp.pay.status.toLowerCase() == "locked") throw new RpcException({ status: status.INVALID_ARGUMENT, message: 'Tài khoản đã bị khóa, không thể rút tiền' });
     const userBalance = Number(payResp.pay?.tien) || 0;
 
     if (payload.amount > userBalance) {
