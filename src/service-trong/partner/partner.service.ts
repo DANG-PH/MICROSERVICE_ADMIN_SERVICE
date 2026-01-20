@@ -1,6 +1,6 @@
 import { Injectable, Inject } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
+import { Like, Repository } from 'typeorm';
 import { Partner } from './partner.entity';
 import { RpcException } from '@nestjs/microservices';
 import {
@@ -15,7 +15,8 @@ import {
   AccountInformationResponse,
   BuyAccountRequest,
   GetAllAccountByBuyerRequest,
-  GetAllAccountByBuyerResponse
+  GetAllAccountByBuyerResponse,
+  ListAccountSellRequest
 } from '../../../proto/admin.pb';
 import { status } from '@grpc/grpc-js';
 import { PayService } from 'src/service-ngoai/pay/pay.service';
@@ -124,23 +125,80 @@ export class PartnerService {
   }
 
   // ====== Lấy tất cả account active ======
-  async getAllActiveAccounts(): Promise<ListAccountSellResponse> {
-    const accounts = await this.partnerRepository.find({ where: { status: 'ACTIVE' } });
+  async getAllActiveAccounts(payload: ListAccountSellRequest): Promise<ListAccountSellResponse> {
+    const page = Number(payload.paginationRequest?.page) || 1;
+    const itemPerPage = Number(payload.paginationRequest?.itemPerPage) || 10;
+    const search = payload.paginationRequest?.search || "";
+
+    const skip = (page - 1)*itemPerPage;
+
+    const [accounts, total] = await this.partnerRepository.findAndCount({ 
+      where: {
+        status: 'ACTIVE',
+        description: Like('%' + search + '%')
+      }, 
+      order: { createdAt: "DESC"},
+      take: itemPerPage,
+      skip: skip,
+    });
+
+    const lastPage = Math.ceil(total/itemPerPage);
+    const nextPage = page + 1 <= lastPage ? page + 1 : -1;
+    const prevPage = page - 1 >= 1 ? page - 1 : -1;
+
     const mapped = accounts.map(acc => ({
       ...acc,
       createdAt: acc.createdAt.toISOString(),
     }));
-    return { accounts: mapped };
+    return { 
+      accounts: mapped,
+      paginationResponse: {
+        total: total,
+        currentPage: page,
+        lastPage: lastPage,
+        nextPage: nextPage,
+        prevPage: prevPage,
+      } 
+    };
   }
 
   // ====== Lấy account theo partner ======
   async getAccountsByPartner(payload: GetAccountsByPartnerRequest): Promise<ListAccountSellResponse> {
-    const accounts = await this.partnerRepository.find({ where: { partner_id: payload.partner_id } });
+
+    const page = Number(payload.paginationRequest?.page) || 1;
+    const itemPerPage = Number(payload.paginationRequest?.itemPerPage) || 10;
+    const search = payload.paginationRequest?.search || "";
+
+    const skip = (page - 1)*itemPerPage;
+
+    const [accounts, total] = await this.partnerRepository.findAndCount({
+      where: { 
+        partner_id: payload.partner_id,
+        description: Like('%' + search + '%') 
+      },
+      order: { createdAt: "DESC"},
+      take: itemPerPage,
+      skip: skip, 
+    });
     const mapped = accounts.map(acc => ({
       ...acc,
       createdAt: acc.createdAt.toISOString(),
     }));
-    return { accounts: mapped };
+
+    const lastPage = Math.ceil(total/itemPerPage);
+    const nextPage = page + 1 <= lastPage ? page + 1 : -1;
+    const prevPage = page - 1 >= 1 ? page - 1 : -1;
+
+    return { 
+      accounts: mapped,
+      paginationResponse: {
+        total: total,
+        currentPage: page,
+        lastPage: lastPage,
+        nextPage: nextPage,
+        prevPage: prevPage,
+      }  
+    };
   }
 
   // ====== Lấy chi tiết account ======
