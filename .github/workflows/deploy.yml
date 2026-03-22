@@ -21,6 +21,7 @@ jobs:
                 "service": "admin-service",
                 "dir": "/root/MICROSERVICE_ADMIN_SERVICE",
                 "port": "3006",
+                "skip_health_check": "false",
                 "actor": "${{ github.actor }}",
                 "commit": "${{ github.sha }}",
                 "message": "${{ github.event.head_commit.message }}"
