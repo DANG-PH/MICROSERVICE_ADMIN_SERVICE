@@ -25,6 +25,7 @@ import { CACHE_MANAGER } from '@nestjs/cache-manager';
 import { Cache } from '@nestjs/cache-manager';
 import { RedisAccountService } from 'src/redis/redis-low.service';
 import Redis from 'ioredis';
+import { GetEmailUserResponse } from 'proto/auth.pb';
 
 @Injectable()
 export class PartnerService {
@@ -268,7 +269,7 @@ export class PartnerService {
         throw new RpcException({ status: status.FAILED_PRECONDITION, message: 'Số dư không đủ để mua tài khoản này' });
       }
 
-      const emailBuyer = await this.authService.handleGetEmail({id: payload.user_id});
+      const emailBuyer: GetEmailUserResponse = await this.authService.handleGetEmail({id: payload.user_id});
       const newPassword = generateStrongPassword();
 
       const sessionId = Buffer.from(account.username).toString('base64');
@@ -351,7 +352,7 @@ export class PartnerService {
       throw new RpcException({ status: status.FAILED_PRECONDITION, message: 'Số dư không đủ để mua tài khoản này' });
 
     const emailBuyer = await this.authService.handleGetEmail({ id: payload.user_id });
-    const emailNguoiBan = await this.authService.handleGetEmail({ id: account.partner_id });
+    const emailNguoiBan: GetEmailUserResponse = await this.authService.handleGetEmail({ id: account.partner_id });
     const newPassword = generateStrongPassword();
     const sessionId = Buffer.from(account.username).toString('base64');
 
@@ -498,7 +499,7 @@ export class PartnerService {
       const sessionId = Buffer.from(accountId).toString('base64');
       const account = await this.partnerRepository.findOne({ where: { id: Number(accountId) } });
       if (!account) continue;
-      const sellerEmail = await this.authService.handleGetEmail({ id: Number(account.partner_id) });
+      const sellerEmail: GetEmailUserResponse = await this.authService.handleGetEmail({ id: Number(account.partner_id) });
 
       if (saga.emailChanged) await this.authService.handleChangeEmail({ sessionId, newEmail: sellerEmail.email }).catch(() => {});
       // if (saga.passwordChanged) await this.authService.handleChangePassword({ sessionId, oldPassword: generateStrongPassword(), newPassword: account.password }).catch(() => {}); // sai logic 1 chut nhung co email thi ko sao
