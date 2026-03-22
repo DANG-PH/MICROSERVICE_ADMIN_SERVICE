@@ -19,7 +19,7 @@ jobs:
               "event_type": "deploy",
               "client_payload": {
                 "service": "admin-service",
-                "dir": "/root/MICROSERVICE_ADMIN_SERVICE",
+                "dir": "MICROSERVICE_ADMIN_SERVICE",
                 "port": "3006",
                 "actor": "${{ github.actor }}",
                 "commit": "${{ github.sha }}",
