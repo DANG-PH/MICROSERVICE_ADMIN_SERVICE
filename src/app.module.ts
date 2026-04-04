@@ -11,6 +11,7 @@ import { PayModule } from './service-ngoai/pay/pay.module';
 import { RedisModule } from './redis/redis.module';
 import { AuthModule } from './service-ngoai/auth/auth.module';
 import { RedisLowModule } from './redis/redis-low.module';
+import { GrpcExceptionFilter } from './common/filters/grpc-exception.filter';
 
 @Module({
   imports: [
@@ -49,6 +50,6 @@ import { RedisLowModule } from './redis/redis-low.module';
     RedisLowModule
   ],
   controllers: [AppController],
-  providers: [AppService],
+  providers: [AppService,GrpcExceptionFilter],
 })
 export class AppModule {}

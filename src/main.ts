@@ -6,6 +6,7 @@ import { MicroserviceOptions, Transport } from '@nestjs/microservices';
 import { join } from 'path';
 import { Logger } from '@nestjs/common';
 import { ADMIN_PACKAGE_NAME } from 'proto/admin.pb';
+import { GrpcExceptionFilter } from './common/filters/grpc-exception.filter';
 
 async function bootstrap() {
   const logger = new Logger('Bootstrap');
@@ -25,6 +26,8 @@ async function bootstrap() {
       },
     },
   });
+
+  app.useGlobalFilters(app.get(GrpcExceptionFilter));
 
   await app.startAllMicroservices();
   logger.log(`✅ gRPC server running on ${process.env.ADMIN_URL}`);

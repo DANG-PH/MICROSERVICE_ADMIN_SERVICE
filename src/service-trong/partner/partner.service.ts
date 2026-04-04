@@ -49,19 +49,10 @@ export class PartnerService {
     const account = await this.partnerRepository.findOne({ where: { username: payload.username } });
     if (account && account.status == "ACTIVE") throw new RpcException({ status: status.ALREADY_EXISTS, message: 'Account đã tồn tại' });
 
-    try {
-      const accountBan = await this.authService.handleCheckAccount({
-        username: payload.username,
-        password: payload.password
-      })
-    } catch (err) {
-      // gRPC error từ service B
-      // err thường có dạng { code, details, metadata }
-      if (err.code && err.details) {
-        throw new RpcException({ status: err.code, message: err.details });
-      }
-      throw err; // fallback
-    }
+    const accountBan = await this.authService.handleCheckAccount({
+      username: payload.username,
+      password: payload.password
+    })
 
     const newAccount = this.partnerRepository.create({
       username: payload.username,
@@ -252,16 +243,7 @@ export class PartnerService {
         });
       }
 
-      let payResp;
-      try {
-        payResp = await this.payService.getPay({userId: payload.user_id});
-      } catch (err) {
-        if (err.code && err.details) {
-          throw new RpcException({ status: err.code, message: err.details });
-        }
-        throw err; 
-      }
-
+      const payResp = await this.payService.getPay({userId: payload.user_id});
       const userBalance = Number(payResp.pay?.tien) || 0;
 
       if (account.price > userBalance) {
@@ -338,13 +320,7 @@ export class PartnerService {
 
 
     // Step 2: check user balance
-    let payResp;
-    try {
-      payResp = await this.payService.getPay({ userId: payload.user_id });
-    } catch (err) {
-      if (err.code && err.details) throw new RpcException({ status: err.code, message: err.details });
-      throw err;
-    }
+    const payResp = await this.payService.getPay({ userId: payload.user_id });
 
     const userBalance = Number(payResp.pay?.tien) || 0;
     if (account.price > userBalance)
