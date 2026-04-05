@@ -13,7 +13,7 @@ async function bootstrap() {
 
   const app = await NestFactory.create(AppModule);
 
-  app.connectMicroservice<MicroserviceOptions>({
+  const grpcMicroservice = app.connectMicroservice<MicroserviceOptions>({
     transport: Transport.GRPC,
     options: {
       package: ADMIN_PACKAGE_NAME,
@@ -27,7 +27,7 @@ async function bootstrap() {
     },
   });
 
-  app.useGlobalFilters(app.get(GrpcExceptionFilter));
+  grpcMicroservice.useGlobalFilters(new GrpcExceptionFilter());
 
   await app.startAllMicroservices();
   logger.log(`✅ gRPC server running on ${process.env.ADMIN_URL}`);
