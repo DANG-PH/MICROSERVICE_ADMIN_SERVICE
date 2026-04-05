@@ -6,7 +6,7 @@ import { MicroserviceOptions, Transport } from '@nestjs/microservices';
 import { join } from 'path';
 import { Logger } from '@nestjs/common';
 import { ADMIN_PACKAGE_NAME } from 'proto/admin.pb';
-import { GrpcExceptionFilter } from './common/filters/grpc-exception.filter';
+import { GrpcExceptionFilter } from './filters/grpc-exception.filter';
 
 async function bootstrap() {
   const logger = new Logger('Bootstrap');

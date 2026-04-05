@@ -11,7 +11,7 @@ import { PayModule } from './service-ngoai/pay/pay.module';
 import { RedisModule } from './redis/redis.module';
 import { AuthModule } from './service-ngoai/auth/auth.module';
 import { RedisLowModule } from './redis/redis-low.module';
-import { GrpcExceptionFilter } from './common/filters/grpc-exception.filter';
+import { GrpcExceptionFilter } from './filters/grpc-exception.filter';
 
 @Module({
   imports: [
