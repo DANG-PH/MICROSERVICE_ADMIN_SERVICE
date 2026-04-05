@@ -4,7 +4,7 @@ import { BaseRpcExceptionFilter } from '@nestjs/microservices';
 import { ServiceError } from '@grpc/grpc-js';
 import { throwError } from 'rxjs';
 
-@Catch(RpcException) // Chỉ bắn gRPC exception
+@Catch() 
 export class GrpcExceptionFilter extends BaseRpcExceptionFilter {
   catch(exception: unknown, host: ArgumentsHost) {
     if (
