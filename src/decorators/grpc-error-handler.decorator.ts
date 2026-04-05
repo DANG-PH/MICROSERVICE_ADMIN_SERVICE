@@ -12,7 +12,7 @@ export function GrpcErrorHandler() {
       } catch (err: any) {
         if (err instanceof RpcException) throw err; // giữ nguyên
         throw new RpcException({
-          status: err?.code ?? status.INTERNAL,
+          status: err?.code ?? status.NOT_FOUND,
           message: err?.details || err?.message || 'Internal error',
         });
       }
