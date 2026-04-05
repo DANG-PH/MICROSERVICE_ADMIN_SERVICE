@@ -15,7 +15,7 @@ export function GrpcErrorHandler() {
             throw err;
         }
         throw new RpcException({
-          status: status.NOT_FOUND,
+          code: err?.code ?? status.INTERNAL,
           message: err?.details || err?.message || 'Internal error',
         });
       }

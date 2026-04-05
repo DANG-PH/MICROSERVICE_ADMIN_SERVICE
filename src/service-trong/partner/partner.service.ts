@@ -45,11 +45,11 @@ export class PartnerService {
   @GrpcErrorHandler()
   async createAccountSell(payload: CreateAccountSellRequest): Promise<AccountSellResponse> {
     if (payload.partner_username === payload.username) {
-      throw new RpcException({ status: status.CANCELLED, message: "Không thể tự bán acc của chính mình" });
+      throw new RpcException({ code: status.CANCELLED, message: "Không thể tự bán acc của chính mình" });
     }
 
     const account = await this.partnerRepository.findOne({ where: { username: payload.username } });
-    if (account && account.status == "ACTIVE") throw new RpcException({ status: status.ALREADY_EXISTS, message: 'Account đã tồn tại' });
+    if (account && account.status == "ACTIVE") throw new RpcException({ code: status.ALREADY_EXISTS, message: 'Account đã tồn tại' });
 
     const accountBan = await this.authService.handleCheckAccount({
       username: payload.username,
@@ -85,7 +85,7 @@ export class PartnerService {
   // ====== Cập nhật account ======
   async updateAccountSell(payload: UpdateAccountSellRequest): Promise<AccountSellResponse> {
     const account = await this.partnerRepository.findOne({ where: { id: payload.id } });
-    if (!account) throw new RpcException({ status: status.NOT_FOUND, message: 'Không tìm thấy account' });
+    if (!account) throw new RpcException({ code: status.NOT_FOUND, message: 'Không tìm thấy account' });
 
     account.url = payload.url;
     account.description = payload.description;
@@ -103,7 +103,7 @@ export class PartnerService {
   // ====== Xoá account ======
   async deleteAccountSell(payload: DeleteAccountSellRequest): Promise<AccountSellResponse> {
     const account = await this.partnerRepository.findOne({ where: { id: payload.id } });
-    if (!account) throw new RpcException({ status: status.NOT_FOUND, message: 'Không tìm thấy account' });
+    if (!account) throw new RpcException({ code: status.NOT_FOUND, message: 'Không tìm thấy account' });
 
     await this.partnerRepository.remove(account);
 
@@ -197,7 +197,7 @@ export class PartnerService {
   // ====== Lấy chi tiết account ======
   async getAccountById(payload: GetAccountByIdRequest): Promise<AccountSellResponse> {
     const account = await this.partnerRepository.findOne({ where: { id: payload.id } });
-    if (!account) throw new RpcException({ status: status.NOT_FOUND, message: 'Không tìm thấy account' });
+    if (!account) throw new RpcException({ code: status.NOT_FOUND, message: 'Không tìm thấy account' });
 
     return {
       account: {
@@ -210,7 +210,7 @@ export class PartnerService {
   // ====== Đánh dấu account đã bán hoặc active ======
   async markAccountAsSold(payload: UpdateAccountStatusRequest): Promise<AccountSellResponse> {
     const account = await this.partnerRepository.findOne({ where: { id: payload.id } });
-    if (!account) throw new RpcException({ status: status.NOT_FOUND, message: 'Không tìm thấy account' });
+    if (!account) throw new RpcException({ code: status.NOT_FOUND, message: 'Không tìm thấy account' });
 
     account.status = payload.status;
     const updated = await this.partnerRepository.save(account);
@@ -229,18 +229,18 @@ export class PartnerService {
         where: { id: payload.id },
         lock: { mode: 'pessimistic_write' } // khoá row để tránh race condition tránh được 2 người mua cùng lúc.
       });
-      if (!account) throw new RpcException({ status: status.NOT_FOUND, message: 'Không tìm thấy account' });
+      if (!account) throw new RpcException({ code: status.NOT_FOUND, message: 'Không tìm thấy account' });
 
       if (account.username == payload.username) {
           throw new RpcException({
-          status: status.FAILED_PRECONDITION,
+          code: status.FAILED_PRECONDITION,
           message: 'Không thể tự mua acc chính mình'
         });
       }
 
       if (account.status === 'SOLD') {
         throw new RpcException({
-          status: status.FAILED_PRECONDITION,
+          code: status.FAILED_PRECONDITION,
           message: 'Tài khoản đã được bán'
         });
       }
@@ -249,7 +249,7 @@ export class PartnerService {
       const userBalance = Number(payResp.pay?.tien) || 0;
 
       if (account.price > userBalance) {
-        throw new RpcException({ status: status.FAILED_PRECONDITION, message: 'Số dư không đủ để mua tài khoản này' });
+        throw new RpcException({ code: status.FAILED_PRECONDITION, message: 'Số dư không đủ để mua tài khoản này' });
       }
 
       const emailBuyer = await this.authService.handleGetEmail({id: payload.user_id});
@@ -299,11 +299,11 @@ export class PartnerService {
     //     lock: { mode: 'pessimistic_write' },
     //   });
 
-    //   if (!acc) throw new RpcException({ status: status.NOT_FOUND, message: 'Không tìm thấy account' });
+    //   if (!acc) throw new RpcException({ code: status.NOT_FOUND, message: 'Không tìm thấy account' });
     //   if (acc.username === payload.username)
-    //     throw new RpcException({ status: status.FAILED_PRECONDITION, message: 'Không thể tự mua acc chính mình' });
+    //     throw new RpcException({ code: status.FAILED_PRECONDITION, message: 'Không thể tự mua acc chính mình' });
     //   if (acc.status === 'SOLD')
-    //     throw new RpcException({ status: status.FAILED_PRECONDITION, message: 'Tài khoản đã được bán' });
+    //     throw new RpcException({ code: status.FAILED_PRECONDITION, message: 'Tài khoản đã được bán' });
 
     //   return acc;
     // });
@@ -312,13 +312,13 @@ export class PartnerService {
     // Step 1: reserve account atomically
     const reserved = await this.redisAccountService.reserveAccount(payload.id, payload.user_id);
     if (!reserved) {
-      throw new RpcException({ status: status.FAILED_PRECONDITION, message: 'Account đã được bán hoặc đang xử lý' });
+      throw new RpcException({ code: status.FAILED_PRECONDITION, message: 'Account đã được bán hoặc đang xử lý' });
     }
 
     const account = await this.partnerRepository.findOne({ where: { id: payload.id } });
-    if (!account) throw new RpcException({ status: status.NOT_FOUND, message: 'Không tìm thấy account' });
+    if (!account) throw new RpcException({ code: status.NOT_FOUND, message: 'Không tìm thấy account' });
     if (account.username === payload.username)
-      throw new RpcException({ status: status.FAILED_PRECONDITION, message: 'Không thể tự mua acc chính mình' });
+      throw new RpcException({ code: status.FAILED_PRECONDITION, message: 'Không thể tự mua acc chính mình' });
 
 
     // Step 2: check user balance
@@ -326,7 +326,7 @@ export class PartnerService {
 
     const userBalance = Number(payResp.pay?.tien) || 0;
     if (account.price > userBalance)
-      throw new RpcException({ status: status.FAILED_PRECONDITION, message: 'Số dư không đủ để mua tài khoản này' });
+      throw new RpcException({ code: status.FAILED_PRECONDITION, message: 'Số dư không đủ để mua tài khoản này' });
 
     const emailBuyer = await this.authService.handleGetEmail({ id: payload.user_id });
     const emailNguoiBan = await this.authService.handleGetEmail({ id: account.partner_id });
@@ -449,7 +449,7 @@ export class PartnerService {
 
       await this.redisAccountService.rollbackAccount(payload.id); // rollback redis + lua
 
-      throw new RpcException({status: status.INTERNAL, message: err}); // rethrow để caller biết
+      throw new RpcException({code: status.INTERNAL, message: err}); // rethrow để caller biết
     }
   }
 
