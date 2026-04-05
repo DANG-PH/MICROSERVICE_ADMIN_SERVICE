@@ -10,7 +10,10 @@ export function GrpcErrorHandler() {
       try {
         return await originalMethod.apply(this, args);
       } catch (err: any) {
-        if (err instanceof RpcException) throw err; // giữ nguyên
+        if (err instanceof RpcException) {
+            console.log('RpcException getError():', JSON.stringify(err.getError())); // ✅
+            throw err;
+        }
         throw new RpcException({
           status: status.NOT_FOUND,
           message: err?.details || err?.message || 'Internal error',
