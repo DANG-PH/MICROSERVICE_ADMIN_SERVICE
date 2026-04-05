@@ -42,7 +42,7 @@ export class PartnerService {
   }
 
   // ====== Tạo account sell ======
-  @GrpcErrorHandler()
+
   async createAccountSell(payload: CreateAccountSellRequest): Promise<AccountSellResponse> {
     if (payload.partner_username === payload.username) {
       throw new RpcException({ status: status.CANCELLED, message: "Không thể tự bán acc của chính mình" });
