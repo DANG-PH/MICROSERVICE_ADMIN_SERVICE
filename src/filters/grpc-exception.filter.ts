@@ -14,6 +14,8 @@ export class GrpcExceptionFilter extends BaseRpcExceptionFilter {
     ) {
       const err = exception as ServiceError;
 
+      console.log(err.code);
+      console.log(err.details);
       return throwError(() =>
         new RpcException({
           status: err.code,
