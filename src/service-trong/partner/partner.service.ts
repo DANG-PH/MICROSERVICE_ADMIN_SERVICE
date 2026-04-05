@@ -3,7 +3,7 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { Like, Repository } from 'typeorm';
 import { Partner } from './partner.entity';
 import { RpcException } from '@nestjs/microservices';
-import {
+import type {
   CreateAccountSellRequest,
   UpdateAccountSellRequest,
   DeleteAccountSellRequest,
@@ -25,6 +25,7 @@ import { CACHE_MANAGER } from '@nestjs/cache-manager';
 import { Cache } from '@nestjs/cache-manager';
 import { RedisAccountService } from 'src/redis/redis-low.service';
 import Redis from 'ioredis';
+import { GrpcErrorHandler } from 'src/decorators/grpc-error-handler.decorator';
 
 @Injectable()
 export class PartnerService {
@@ -41,6 +42,7 @@ export class PartnerService {
   }
 
   // ====== Tạo account sell ======
+  @GrpcErrorHandler()
   async createAccountSell(payload: CreateAccountSellRequest): Promise<AccountSellResponse> {
     if (payload.partner_username === payload.username) {
       throw new RpcException({ status: status.CANCELLED, message: "Không thể tự bán acc của chính mình" });
