@@ -27,6 +27,11 @@ import { RedisAccountService } from 'src/redis/redis-low.service';
 import Redis from 'ioredis';
 import { GrpcErrorHandler } from 'src/decorators/grpc-error-handler.decorator';
 
+// @GrpcErrorHandler() chạy TRƯỚC @Injectable()
+// Thứ tự decorator trong TypeScript: chạy từ dưới lên trên
+// 1. @Injectable() chạy trước → NestJS đánh dấu class để inject dependency
+// 2. @GrpcErrorHandler() chạy sau → wrap tất cả methods
+@GrpcErrorHandler()
 @Injectable()
 export class PartnerService {
   private redis: Redis;
@@ -42,7 +47,6 @@ export class PartnerService {
   }
 
   // ====== Tạo account sell ======
-  @GrpcErrorHandler()
   async createAccountSell(payload: CreateAccountSellRequest): Promise<AccountSellResponse> {
     if (payload.partner_username === payload.username) {
       throw new RpcException({ code: status.CANCELLED, message: "Không thể tự bán acc của chính mình" });

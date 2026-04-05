@@ -31,13 +31,13 @@ export class CashierService {
     // 1. Kiểm tra số dư của người dùng
     const payResp = await this.payService.getPay({userId: payload.user_id});
 
-    if (!payResp.pay) throw new RpcException({ status: status.NOT_FOUND, message: 'Không tìm thấy ví, vui lòng liên hệ admin để xử lí' });
+    if (!payResp.pay) throw new RpcException({ code: status.NOT_FOUND, message: 'Không tìm thấy ví, vui lòng liên hệ admin để xử lí' });
 
-    if (payResp.pay.status.toLowerCase() == "locked") throw new RpcException({ status: status.INVALID_ARGUMENT, message: 'Tài khoản đã bị khóa, không thể rút tiền' });
+    if (payResp.pay.status.toLowerCase() == "locked") throw new RpcException({ code: status.INVALID_ARGUMENT, message: 'Tài khoản đã bị khóa, không thể rút tiền' });
     const userBalance = Number(payResp.pay?.tien) || 0;
 
     if (payload.amount > userBalance) {
-      throw new RpcException({ status: status.FAILED_PRECONDITION, message: 'Số dư không đủ để rút' });
+      throw new RpcException({ code: status.FAILED_PRECONDITION, message: 'Số dư không đủ để rút' });
     }
 
     // 2. Tạo bản ghi rút tiền
@@ -94,7 +94,7 @@ export class CashierService {
   // ====== Duyệt yêu cầu rút tiền ======
   async approveWithdraw(payload: UpdateWithdrawStatusRequest): Promise<WithdrawResponse> {
     const withdraw = await this.cashierRepository.findOne({ where: { id: payload.id } });
-    if (!withdraw) throw new RpcException({ status: status.NOT_FOUND, message: 'Không tìm thấy yêu cầu rút' });
+    if (!withdraw) throw new RpcException({ code: status.NOT_FOUND, message: 'Không tìm thấy yêu cầu rút' });
 
     withdraw.status = 'SUCCESS';
     withdraw.finance_id = payload.finance_id
@@ -127,7 +127,7 @@ export class CashierService {
   // ====== Từ chối yêu cầu rút tiền ======
   async rejectWithdraw(payload: UpdateWithdrawStatusRequest): Promise<WithdrawResponse> {
     const withdraw = await this.cashierRepository.findOne({ where: { id: payload.id } });
-    if (!withdraw) throw new RpcException({ status: status.NOT_FOUND, message: 'Không tìm thấy yêu cầu rút' });
+    if (!withdraw) throw new RpcException({ code: status.NOT_FOUND, message: 'Không tìm thấy yêu cầu rút' });
 
     withdraw.status = 'ERROR';
     withdraw.finance_id = payload.finance_id;

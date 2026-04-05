@@ -58,7 +58,7 @@ export class EditorService {
   // ====== Lấy bài viết theo ID ======
   async getPostById(payload: GetPostByIdRequest): Promise<PostResponse> {
     const post = await this.editorRepository.findOne({ where: { id: payload.id } });
-    if (!post) throw new RpcException({status: status.NOT_FOUND, message: 'Không tìm thấy bài viết'});
+    if (!post) throw new RpcException({code: status.NOT_FOUND, message: 'Không tìm thấy bài viết'});
     return { 
       post: {
         ...post,
@@ -71,7 +71,7 @@ export class EditorService {
   // ====== Cập nhật bài viết ======
   async updatePost(payload: UpdatePostRequest): Promise<PostResponse> {
     const post = await this.editorRepository.findOne({ where: { id: payload.id } });
-    if (!post) throw new RpcException({status: status.NOT_FOUND, message: 'Không tìm thấy bài viết'});;
+    if (!post) throw new RpcException({code: status.NOT_FOUND, message: 'Không tìm thấy bài viết'});;
 
     post.title = payload.title ?? post.title;
     post.url_anh = payload.url_anh ?? post.url_anh;
@@ -91,7 +91,7 @@ export class EditorService {
   // ====== Xóa bài viết ======
   async deletePost(payload: DeletePostRequest): Promise<PostResponse> {
     const post = await this.editorRepository.findOne({ where: { id: payload.id } });
-    if (!post) throw new RpcException({status: status.NOT_FOUND, message: 'Không tìm thấy bài viết'});;
+    if (!post) throw new RpcException({code: status.NOT_FOUND, message: 'Không tìm thấy bài viết'});;
     await this.editorRepository.remove(post);
     return { 
       post: {
@@ -105,7 +105,7 @@ export class EditorService {
   // ====== Khóa bài viết ======
   async lockPost(payload: UpdatePostStatusRequest): Promise<PostResponse> {
     const post = await this.editorRepository.findOne({ where: { id: payload.id } });
-    if (!post) throw new RpcException({status: status.NOT_FOUND, message: 'Không tìm thấy bài viết'});;
+    if (!post) throw new RpcException({code: status.NOT_FOUND, message: 'Không tìm thấy bài viết'});;
     post.status = 'LOCKED';
     post.update_at = new Date();
     const updated = await this.editorRepository.save(post);
@@ -121,7 +121,7 @@ export class EditorService {
   // ====== Mở khóa bài viết ======
   async unlockPost(payload: UpdatePostStatusRequest): Promise<PostResponse> {
     const post = await this.editorRepository.findOne({ where: { id: payload.id } });
-    if (!post) throw new RpcException({status: status.NOT_FOUND, message: 'Không tìm thấy bài viết'});;
+    if (!post) throw new RpcException({code: status.NOT_FOUND, message: 'Không tìm thấy bài viết'});;
     post.status = 'ACTIVE';
     post.update_at = new Date();
     const updated = await this.editorRepository.save(post);
