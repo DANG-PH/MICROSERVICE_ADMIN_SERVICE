@@ -16,12 +16,10 @@ export class GrpcExceptionFilter extends BaseRpcExceptionFilter {
 
       console.log(err.code);
       console.log(err.details);
-      return throwError(() =>
-        new RpcException({
-          status: err.code,
-          message: err.details || err.message,
-        }),
-      );
+      return throwError(() => ({
+        code: err.code,
+        message: err.details || err.message,
+      }));
     }
 
     return super.catch(exception, host);
