@@ -83,7 +83,7 @@ export class PartnerService {
     );
 
     // gửi email confirm
-    const confirmLink = `${process.env.DOMAIN_BACKEND}/confirm-sell?token=${token}`;
+    const confirmLink = `${process.env.DOMAIN_BACKEND}/partner/confirm-sell?token=${token}`;
 
     await this.authService.handleSendEmailToUser({
       who: payload.username,
