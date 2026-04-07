@@ -69,18 +69,26 @@ export class PartnerService {
     const token = randomUUID(); 
 
     // lưu tạm vào Redis
-    await this.redis.set(
+    // Cần check key có chưa đã
+    const isSet = await this.redis.set(
       `ACCOUNT:SELL:${token}`,
       JSON.stringify({
         username: payload.username,
+        password: payload.password,
         url: payload.url,
         description: payload.description,
         price: payload.price,
         partner_id: payload.partner_id,
       }),
       'EX',
-      600
+      600,
+      'NX'
     );
+
+    if (!isSet) {
+      // key đã tồn tại → handle
+      throw new RpcException({ code: status.ALREADY_EXISTS, message: 'Yêu cầu bán đã gửi, check email' });
+    }
 
     // gửi email confirm
     const confirmLink = `${process.env.DOMAIN_BACKEND}/partner/confirm-sell?token=${token}`;
