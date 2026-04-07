@@ -34,7 +34,6 @@ import { GrpcErrorHandler } from 'src/decorators/grpc-error-handler.decorator';
 @GrpcErrorHandler()
 @Injectable()
 export class PartnerService {
-  private redis: Redis;
   constructor(
     @InjectRepository(Partner)
     private readonly partnerRepository: Repository<Partner>,
@@ -42,9 +41,8 @@ export class PartnerService {
     private readonly authService: AuthService,
     @Inject(CACHE_MANAGER) private cacheManager: Cache,
     private readonly redisAccountService: RedisAccountService,
-  ) {
-    this.redis = new Redis(process.env.REDIS_URL || '');
-  }
+    @Inject('REDIS_CLIENT') private readonly redis: Redis,
+  ) {}
 
   // ====== Tạo account sell ======
   async createAccountSell(payload: CreateAccountSellRequest): Promise<AccountSellResponse> {

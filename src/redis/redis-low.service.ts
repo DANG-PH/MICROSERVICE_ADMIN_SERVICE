@@ -1,13 +1,11 @@
-import { Injectable } from '@nestjs/common';
+import { Inject, Injectable } from '@nestjs/common';
 import { Redis } from 'ioredis';
 
 @Injectable()
 export class RedisAccountService {
-  private redis: Redis;
   private luaSha: string;
 
-  constructor() {
-    this.redis = new Redis(process.env.REDIS_URL || '');
+  constructor(@Inject('REDIS_CLIENT') private readonly redis: Redis,) {
     this.loadLuaScript();
   }
 
