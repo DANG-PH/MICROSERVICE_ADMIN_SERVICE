@@ -128,7 +128,7 @@ export class PartnerService {
 
     const redisKey = `ACCOUNT:SELL:${payload.token}`;
 
-    // 1. Atomic get + delete bằng Lua
+    // 1. Atomic get + del bằng Lua
     const raw = await this.redis.eval(
       CONFIRM_SCRIPT,
       1,
