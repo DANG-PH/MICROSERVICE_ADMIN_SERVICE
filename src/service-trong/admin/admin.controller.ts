@@ -15,6 +15,7 @@ import type {
   GetAllAccountByBuyerResponse,
   GetAllAccountByBuyerRequest,
   ListAccountSellRequest,
+  CreateAccountSellResponse,
 } from '../../../proto/admin.pb';
 import type {
   CreateWithdrawRequestt,
@@ -118,7 +119,7 @@ export class AdminController {
 
   // ===== Partner RPC =====
   @GrpcMethod(PARTNER_SERVICE_NAME, 'CreateAccountSell')
-  async createAccountSell(payload: CreateAccountSellRequest): Promise<AccountSellResponse> {
+  async createAccountSell(payload: CreateAccountSellRequest): Promise<CreateAccountSellResponse> {
     return this.partnerService.createAccountSell(payload);
   }
 
