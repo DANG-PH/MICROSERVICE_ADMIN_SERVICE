@@ -8,7 +8,9 @@ import {
   AuthServiceClient,
   ChangePasswordRequest,
   LoginRequest,
-  LoginResponse
+  LoginResponse,
+  SendEmailToUserRequest,
+  SystemChangePasswordRequest
 } from 'proto/auth.pb';
 import { winstonLogger } from 'src/logger/logger.config'; 
 import { firstValueFrom } from 'rxjs';
@@ -40,6 +42,14 @@ export class AuthService {
 
   async handleCheckAccount(req: LoginRequest): Promise<LoginResponse> {
     return firstValueFrom(this.authGrpcService.checkAccount(req));
+  }
+
+  async handleSendEmailToUser(req: SendEmailToUserRequest) {
+    return firstValueFrom(this.authGrpcService.sendEmailToUser(req));
+  }
+
+  async handleSystemChangePassword(req: SystemChangePasswordRequest) {
+    return firstValueFrom(this.authGrpcService.systemChangePassword(req));
   }
 }
 

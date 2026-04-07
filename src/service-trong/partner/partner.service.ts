@@ -2,7 +2,7 @@ import { Injectable, Inject } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Like, Repository } from 'typeorm';
 import { Partner } from './partner.entity';
-import { RpcException } from '@nestjs/microservices';
+import { ClientProxy, RpcException } from '@nestjs/microservices';
 import type {
   CreateAccountSellRequest,
   UpdateAccountSellRequest,
@@ -16,7 +16,10 @@ import type {
   BuyAccountRequest,
   GetAllAccountByBuyerRequest,
   GetAllAccountByBuyerResponse,
-  ListAccountSellRequest
+  ListAccountSellRequest,
+  CreateAccountSellResponse,
+  ConfirmAccountSellRequest,
+  ConfirmAccountSellResponse
 } from '../../../proto/admin.pb';
 import { status } from '@grpc/grpc-js';
 import { PayService } from 'src/service-ngoai/pay/pay.service';
@@ -26,6 +29,8 @@ import { Cache } from '@nestjs/cache-manager';
 import { RedisAccountService } from 'src/redis/redis-low.service';
 import Redis from 'ioredis';
 import { GrpcErrorHandler } from 'src/decorators/grpc-error-handler.decorator';
+import { randomUUID } from 'crypto';
+import * as bcrypt from 'bcrypt';
 
 // @GrpcErrorHandler() chạy TRƯỚC @Injectable()
 // Thứ tự decorator trong TypeScript: chạy từ dưới lên trên
@@ -42,10 +47,11 @@ export class PartnerService {
     @Inject(CACHE_MANAGER) private cacheManager: Cache,
     private readonly redisAccountService: RedisAccountService,
     @Inject('REDIS_CLIENT') private readonly redis: Redis,
+    @Inject(String(process.env.RABBIT_SERVICE)) private readonly emailClient: ClientProxy,
   ) {}
 
   // ====== Tạo account sell ======
-  async createAccountSell(payload: CreateAccountSellRequest): Promise<AccountSellResponse> {
+  async createAccountSell(payload: CreateAccountSellRequest): Promise<CreateAccountSellResponse> {
     if (payload.partner_username === payload.username) {
       throw new RpcException({ code: status.CANCELLED, message: "Không thể tự bán acc của chính mình" });
     }
@@ -58,29 +64,96 @@ export class PartnerService {
       password: payload.password
     })
 
+    if (!accountBan.sessionId) throw new RpcException({ code: status.ALREADY_EXISTS, message: 'Account không khả dụng' });
+
+    const token = randomUUID(); 
+
+    // lưu tạm vào Redis
+    await this.redis.set(
+      `ACCOUNT:SELL:${token}`,
+      JSON.stringify({
+        username: payload.username,
+        url: payload.url,
+        description: payload.description,
+        price: payload.price,
+        partner_id: payload.partner_id,
+      }),
+      'EX',
+      600
+    );
+
+    // gửi email confirm
+    const confirmLink = `${process.env.DOMAIN_BACKEND}/confirm-sell?token=${token}`;
+
+    await this.authService.handleSendEmailToUser({
+      who: payload.username,
+      title: "Xác nhận đăng bán tài khoản",
+      content: `
+        Chúng tôi nhận được yêu cầu đăng bán tài khoản của bạn trên hệ thống.
+        <br><br>
+        Để hoàn tất quá trình này, vui lòng xác nhận bằng cách nhấn vào liên kết bên dưới:
+        <br><br>
+        👉 <b>
+          <a href="${confirmLink}" target="_blank" rel="noopener noreferrer">
+            Xác nhận đăng bán tài khoản
+          </a>
+        </b>
+        <br><br>
+        Liên kết này sẽ hết hạn sau 10 phút.
+        <br><br>
+        Nếu bạn không thực hiện yêu cầu này, vui lòng bỏ qua email này để đảm bảo an toàn cho tài khoản của bạn.
+      `
+    })
+
+    return {
+      success: true,
+    };
+  }
+
+  async confirmAccountSell(
+    payload: ConfirmAccountSellRequest
+  ): Promise<ConfirmAccountSellResponse> {
+
+    const CONFIRM_SCRIPT = `
+      local key = KEYS[1]
+
+      local val = redis.call("GET", key)
+      if not val then
+        return nil
+      end
+
+      redis.call("DEL", key)
+      return val
+    `;
+
+    const redisKey = `ACCOUNT:SELL:${payload.token}`;
+
+    // 1. Atomic get + delete bằng Lua
+    const raw = await this.redis.eval(
+      CONFIRM_SCRIPT,
+      1,
+      redisKey
+    ) as string | null;
+
+    if (!raw) {
+      throw new RpcException({
+        code: status.NOT_FOUND,
+        message: 'Token không hợp lệ hoặc đã hết hạn',
+      });
+    }
+
+    const data = JSON.parse(raw);
+
     const newAccount = this.partnerRepository.create({
-      username: payload.username,
-      password: payload.password,
-      url: payload.url,
-      description: payload.description,
-      price: payload.price,
+      ...data,
       status: 'ACTIVE',
-      partner_id: payload.partner_id,
       createdAt: new Date(),
     });
 
-    const saved = await this.partnerRepository.save(newAccount);
-
-    await this.cacheManager.set(
-      `account:${saved.id}`,
-      JSON.stringify({ status: 'ACTIVE', buyerId: null })
-    );  // chuẩn bị cho redis + lua script
+    await this.partnerRepository.save(newAccount);
 
     return {
-      account: {
-        ...saved,
-        createdAt: saved.createdAt.toISOString(),
-      },
+      success: true
     };
   }
 
@@ -108,8 +181,6 @@ export class PartnerService {
     if (!account) throw new RpcException({ code: status.NOT_FOUND, message: 'Không tìm thấy account' });
 
     await this.partnerRepository.remove(account);
-
-    await this.cacheManager.del(`account:${account.id}`); // chuẩn bị cho redis + lua
 
     return {
       account: {
@@ -259,9 +330,8 @@ export class PartnerService {
 
       const sessionId = Buffer.from(account.username).toString('base64');
 
-      await this.authService.handleChangePassword({
+      await this.authService.handleSystemChangePassword({
         sessionId: sessionId,
-        oldPassword: account.password,
         newPassword: newPassword
       })
 
@@ -420,7 +490,6 @@ export class PartnerService {
         await manager.save(account);
       });
 
-      await this.cacheManager.del(`account:${account.id}`);
       await this.cacheManager.del(`saga:buyAccount:${payload.user_id}:${payload.id}`);
 
       return { username: account.username, password: newPassword };
