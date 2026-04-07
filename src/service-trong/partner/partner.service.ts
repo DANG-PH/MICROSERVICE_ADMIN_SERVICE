@@ -59,6 +59,12 @@ export class PartnerService {
     const account = await this.partnerRepository.findOne({ where: { username: payload.username } });
     if (account && account.status == "ACTIVE") throw new RpcException({ code: status.ALREADY_EXISTS, message: 'Account đã tồn tại' });
 
+    const pendingKey = `ACCOUNT:SELL:PENDING:${payload.username}`;
+    const existing = await this.redis.get(pendingKey);
+    if (existing) {
+      throw new RpcException({ code: status.ALREADY_EXISTS, message: 'Yêu cầu bán đã gửi, check email' });
+    }
+
     const accountBan = await this.authService.handleCheckAccount({
       username: payload.username,
       password: payload.password
@@ -69,10 +75,10 @@ export class PartnerService {
     const token = randomUUID(); 
 
     // lưu tạm vào Redis
-    // Cần check key có chưa đã
-    const isSet = await this.redis.set(
-      `ACCOUNT:SELL:${token}`,
+    await this.redis.set(
+      pendingKey,
       JSON.stringify({
+        token, // lưu token vào value để dùng lúc confirm
         username: payload.username,
         password: payload.password,
         url: payload.url,
@@ -85,10 +91,13 @@ export class PartnerService {
       'NX'
     );
 
-    if (!isSet) {
-      // key đã tồn tại → handle
-      throw new RpcException({ code: status.ALREADY_EXISTS, message: 'Yêu cầu bán đã gửi, check email' });
-    }
+    // Key confirm tra cứu ngược từ token → data
+    await this.redis.set(
+      `ACCOUNT:SELL:TOKEN:${token}`,
+      payload.username,
+      'EX',
+      600
+    );
 
     // gửi email confirm
     const confirmLink = `${process.env.DOMAIN_BACKEND}/partner/confirm-sell?token=${token}`;
@@ -122,47 +131,77 @@ export class PartnerService {
     payload: ConfirmAccountSellRequest
   ): Promise<ConfirmAccountSellResponse> {
 
-    const CONFIRM_SCRIPT = `
-      local key = KEYS[1]
+    const TOKEN_KEY = `ACCOUNT:SELL:TOKEN:${payload.token}`;
 
-      local val = redis.call("GET", key)
+    // Step 1: Lấy username từ token key (atomic get + del)
+    const GET_DEL_SCRIPT = `
+      local val = redis.call("GET", KEYS[1])
       if not val then
         return nil
       end
-
-      redis.call("DEL", key)
+      redis.call("DEL", KEYS[1])
       return val
     `;
 
-    const redisKey = `ACCOUNT:SELL:${payload.token}`;
-
-    // 1. Atomic get + del bằng Lua
-    const raw = await this.redis.eval(
-      CONFIRM_SCRIPT,
+    const username = await this.redis.eval(
+      GET_DEL_SCRIPT,
       1,
-      redisKey
+      TOKEN_KEY
     ) as string | null;
 
-    if (!raw) {
+    if (!username) {
       throw new RpcException({
         code: status.NOT_FOUND,
         message: 'Token không hợp lệ hoặc đã hết hạn',
       });
     }
 
+    // Step 2: Lấy data + xóa pending key (atomic)
+    const PENDING_KEY = `ACCOUNT:SELL:PENDING:${username}`;
+
+    const raw = await this.redis.eval(
+      GET_DEL_SCRIPT,
+      1,
+      PENDING_KEY
+    ) as string | null;
+
+    if (!raw) {
+      // Token đã dùng nhưng pending key mất → idempotent, không crash
+      throw new RpcException({
+        code: status.NOT_FOUND,
+        message: 'Yêu cầu không còn tồn tại',
+      });
+    }
+
     const data = JSON.parse(raw);
 
+    // Step 3: Double-check account chưa tồn tại (race condition giữa 2 confirm đồng thời)
+    const existing = await this.partnerRepository.findOne({
+      where: { username: data.username }
+    });
+
+    if (existing?.status === 'ACTIVE') {
+      throw new RpcException({
+        code: status.ALREADY_EXISTS,
+        message: 'Account đã được xác nhận trước đó',
+      });
+    }
+
+    // Step 4: Lưu DB
     const newAccount = this.partnerRepository.create({
-      ...data,
+      username: data.username,
+      password: data.password,
+      url: data.url,
+      description: data.description,
+      price: data.price,
+      partner_id: data.partner_id,
       status: 'ACTIVE',
       createdAt: new Date(),
     });
 
     await this.partnerRepository.save(newAccount);
 
-    return {
-      success: true
-    };
+    return { success: true };
   }
 
   // ====== Cập nhật account ======
