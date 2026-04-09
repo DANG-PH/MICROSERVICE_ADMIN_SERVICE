@@ -1,8 +1,9 @@
 import { Injectable, Inject } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Like, Repository } from 'typeorm';
+import { Like, OptimisticLockVersionMismatchError, Repository } from 'typeorm';
 import { Partner } from './partner.entity';
 import { ClientProxy, RpcException } from '@nestjs/microservices';
+import { LessThanOrEqual } from 'typeorm';
 import type {
   CreateAccountSellRequest,
   UpdateAccountSellRequest,
@@ -19,7 +20,8 @@ import type {
   ListAccountSellRequest,
   CreateAccountSellResponse,
   ConfirmAccountSellRequest,
-  ConfirmAccountSellResponse
+  ConfirmAccountSellResponse,
+  BuyAccountResponse
 } from '../../../proto/admin.pb';
 import { status } from '@grpc/grpc-js';
 import { PayService } from 'src/service-ngoai/pay/pay.service';
@@ -31,6 +33,9 @@ import Redis from 'ioredis';
 import { GrpcErrorHandler } from 'src/decorators/grpc-error-handler.decorator';
 import { randomUUID } from 'crypto';
 import * as bcrypt from 'bcrypt';
+import { OutboxEvent } from './outbox-event.entity';
+import { Cron, CronExpression } from '@nestjs/schedule';
+import { EventEmitter2, OnEvent } from '@nestjs/event-emitter';
 
 // @GrpcErrorHandler() chạy TRƯỚC @Injectable()
 // Thứ tự decorator trong TypeScript: chạy từ dưới lên trên
@@ -42,12 +47,15 @@ export class PartnerService {
   constructor(
     @InjectRepository(Partner)
     private readonly partnerRepository: Repository<Partner>,
+    @InjectRepository(OutboxEvent)
+    private readonly outboxRepository: Repository<OutboxEvent>,
     private readonly payService: PayService,
     private readonly authService: AuthService,
     @Inject(CACHE_MANAGER) private cacheManager: Cache,
     private readonly redisAccountService: RedisAccountService,
     @Inject('REDIS_CLIENT') private readonly redis: Redis,
-    @Inject(String(process.env.RABBIT_SERVICE)) private readonly emailClient: ClientProxy,
+    @Inject(String(process.env.RABBIT_SERVICE)) private readonly queueClient: ClientProxy,
+    private eventEmitter: EventEmitter2
   ) {}
 
   // ====== Tạo account sell ======
@@ -343,7 +351,7 @@ export class PartnerService {
     };
   }
 
-  async buyAccount(payload: BuyAccountRequest): Promise<AccountInformationResponse> {
+  async buyAccount(payload: BuyAccountRequest): Promise<BuyAccountResponse> {
     return await this.partnerRepository.manager.transaction(async (manager) => { // transaction roll back
       const account = await manager.findOne(Partner, {
         where: { id: payload.id },
@@ -387,11 +395,13 @@ export class PartnerService {
         newEmail: emailBuyer.email
       })
 
-      // tạm thời chưa transaction tiền ( sau này có thể bổ sung thêm transaction cho payservice )
       //Trừ tiền người mua nick
       await this.payService.updateMoney({userId: payload.user_id, amount: 0-account.price})
       //Trừ tiền cộng tiền cho partner bán nick
       await this.payService.updateMoney({userId: account.partner_id, amount: account.price*0.98})
+
+      // Tăng tokenVersion (Tránh user cũ vẫn vào được tài khoản)
+      await this.authService.handleSetTokenVersion({username: account.username})
 
       account.status = 'SOLD';
       account.buyer_id = payload.user_id;
@@ -399,175 +409,246 @@ export class PartnerService {
       await manager.save(account);
 
       return {
-        username: account.username,
-        password: account.password
+        message: "Mua tài khoản thành công"
       };
       //Nếu 1 trong mấy service đó thất bại -> hệ thống mất đồng bộ.
       // chỗ này cần transaction kỹ nếu có time
     });
   }
 
-  // Orchestration Saga ( bổ sung cho cách buyaccount ở trên) ( Còn 1 cách nữa là Choreography Saga có thể bổ sung sau)
-  async buyAccountSaga(payload: BuyAccountRequest): Promise<AccountInformationResponse> {
-    // Cách Permisstic Lock
-
-    // Step 1: lock DB row
-    // const account = await this.partnerRepository.manager.transaction(async (manager) => {
-    //   const acc = await manager.findOne(Partner, {
-    //     where: { id: payload.id },
-    //     lock: { mode: 'pessimistic_write' },
-    //   });
-
-    //   if (!acc) throw new RpcException({ code: status.NOT_FOUND, message: 'Không tìm thấy account' });
-    //   if (acc.username === payload.username)
-    //     throw new RpcException({ code: status.FAILED_PRECONDITION, message: 'Không thể tự mua acc chính mình' });
-    //   if (acc.status === 'SOLD')
-    //     throw new RpcException({ code: status.FAILED_PRECONDITION, message: 'Tài khoản đã được bán' });
-
-    //   return acc;
-    // });
-
-    // Cách Redis + Lua Script
-    // Step 1: reserve account atomically
-    const reserved = await this.redisAccountService.reserveAccount(payload.id, payload.user_id);
-    if (!reserved) {
-      throw new RpcException({ code: status.FAILED_PRECONDITION, message: 'Account đã được bán hoặc đang xử lý' });
-    }
-
+  async buyAccountSaga(payload: BuyAccountRequest): Promise<BuyAccountResponse> {
+    // Validate nhanh (không cần transaction)
     const account = await this.partnerRepository.findOne({ where: { id: payload.id } });
-    if (!account) throw new RpcException({ code: status.NOT_FOUND, message: 'Không tìm thấy account' });
+    if (!account)
+      throw new RpcException({ code: status.NOT_FOUND, message: 'Không tìm thấy account' });
     if (account.username === payload.username)
       throw new RpcException({ code: status.FAILED_PRECONDITION, message: 'Không thể tự mua acc chính mình' });
+    if (account.status === 'SOLD')
+      throw new RpcException({ code: status.FAILED_PRECONDITION, message: 'Tài khoản đã được bán' });
 
-
-    // Step 2: check user balance
+    // Check số dư trước (network call, ngoài transaction để tránh giữ lock lâu)
     const payResp = await this.payService.getPay({ userId: payload.user_id });
-
     const userBalance = Number(payResp.pay?.tien) || 0;
     if (account.price > userBalance)
-      throw new RpcException({ code: status.FAILED_PRECONDITION, message: 'Số dư không đủ để mua tài khoản này' });
+      throw new RpcException({ code: status.FAILED_PRECONDITION, message: 'Số dư không đủ' });
 
-    const emailBuyer = await this.authService.handleGetEmail({ id: payload.user_id });
-    const emailNguoiBan = await this.authService.handleGetEmail({ id: account.partner_id });
-    const newPassword = generateStrongPassword();
-    const sessionId = Buffer.from(account.username).toString('base64');
+    // Atomic: pessimistic lock + mark PENDING + ghi Outbox — cùng 1 transaction
+    await this.partnerRepository.manager.transaction(async (manager) => {
+      const locked = await manager.findOne(Partner, {
+        where: { id: payload.id },
+        lock: { mode: 'pessimistic_write' },
+      });
 
-    // Step 3: Saga orchestration with compensating actions
-    let buyerPaid = false;
-    let sellerPaid = false;
-    let passwordChanged = false;
-    let emailChanged = false;
+      if (!locked || locked.status !== 'ACTIVE')
+        throw new RpcException({ code: status.FAILED_PRECONDITION, message: 'Tài khoản không còn khả dụng' });
 
-    await this.cacheManager.set(
-      `saga:buyAccount:${payload.user_id}:${payload.id}`,
-      JSON.stringify({
-        buyerPaid: false,
-        sellerPaid: false,
-        passwordChanged: false,
-        emailChanged: false
-      })
-    );  // nếu crash server thì vẫn xử lí đc
+      locked.status = 'PENDING';
+      locked.buyer_id = payload.user_id;
+      await manager.save(locked);
 
+      // Outbox ghi cùng transaction — đây là điểm mấu chốt
+      // Nếu commit thành công → chắc chắn có outbox row để process
+      // Nếu crash sau commit → cron sẽ pick up và retry
+      const outbox = manager.create(OutboxEvent, {
+        sagaType: 'BUY_ACCOUNT',
+        payload: { ...payload, accountPrice: account.price },
+        status: 'PENDING',
+        retries: 0,
+        maxRetries: 3,
+        nextRetryAt: new Date(),
+      });
+      await manager.save(outbox);
+    });
+
+    return { message: 'Đơn hàng đang được xử lý' };
+  }
+
+  // ─── STEP 2: Cron job — poll outbox và đẩy vào queue ─────────────────────────
+
+  @Cron('*/5 * * * * *') // mỗi 5 giây
+  async pollOutbox(): Promise<void> {
+    const events = await this.outboxRepository.find({
+      where: {
+        status: 'PENDING',
+        nextRetryAt: LessThanOrEqual(new Date()),
+      },
+      order: { createdAt: 'ASC' },
+      take: 20,
+    });
+
+    for (const event of events) {
+      // Mark PROCESSING để tránh cron khác pick up cùng lúc
+      const result = await this.outboxRepository.update(
+        { id: event.id, status: 'PENDING' }, // optimistic check
+        { status: 'PROCESSING' },
+      );
+      if (result.affected === 0) continue;
+
+      const buy_success: boolean = this.eventEmitter.emit('saga.buy_account', event)
+
+      // Đưa về PENDING để retry lần sau
+      if (!buy_success) await this.outboxRepository.update(event.id, { status: 'PENDING' });
+    }
+  }
+
+  // Dùng tạm thay queue ( có queue service rồi nhưng cảm giác chưa cần lắm )
+  @OnEvent('saga.buy_account')
+  async handle(event: OutboxEvent): Promise<void> {
+    await this.processOutboxEvent(event);
+  }
+
+  @Cron('*/30 * * * * *')
+  async recoverStuckProcessing(): Promise<void> {
+    const stuckThreshold = new Date(Date.now() - 5 * 60_000); // 5 phút
+    await this.outboxRepository.update(
+      { status: 'PROCESSING', updatedAt: LessThanOrEqual(stuckThreshold) },
+      { status: 'PENDING' },
+    );
+  }
+
+  // ─── STEP 3: Consumer — xử lý saga với idempotency + retry + compensation ────
+
+  async processOutboxEvent(event: OutboxEvent): Promise<void> {
+    const lockKey = `saga:lock:${event.id}`;
+    const doneKey = `saga:done:${event.id}`;
+
+    // Idempotency: nếu đã xử lý thành công rồi thì skip
+    const alreadyDone = await this.redis.get(doneKey);
+    if (alreadyDone) {
+      await this.outboxRepository.update(event.id, { status: 'DONE' });
+      return;
+    }
+
+    // Distributed lock: ngăn duplicate processing khi nhiều consumer chạy song song
+    const acquired = await this.redis.set(lockKey, '1', 'EX', 300, 'NX');
+    if (!acquired) return; // consumer khác đang xử lý
 
     try {
-      // Trừ tiền người mua
-      await this.payService.updateMoney({ userId: payload.user_id, amount: -account.price });
-      buyerPaid = true;
-      await this.cacheManager.set(
-        `saga:buyAccount:${payload.user_id}:${payload.id}`,
-        JSON.stringify({
-          buyerPaid: buyerPaid,
-          sellerPaid: sellerPaid,
-          passwordChanged: passwordChanged,
-          emailChanged: emailChanged
-        })
-      ); 
+      await this.executeSagaSteps(event);
 
-      // Cộng tiền cho seller
-      await this.payService.updateMoney({ userId: account.partner_id, amount: account.price * 0.98 });
-      sellerPaid = true;
-      await this.cacheManager.set(
-        `saga:buyAccount:${payload.user_id}:${payload.id}`,
-        JSON.stringify({
-          buyerPaid: buyerPaid,
-          sellerPaid: sellerPaid,
-          passwordChanged: passwordChanged,
-          emailChanged: emailChanged
-        })
-      ); 
+      // Thành công: đánh dấu done
+      await this.outboxRepository.update(event.id, { status: 'DONE' });
+      // Cache idempotency key 24h để tránh re-process nếu cron chạy lại
+      await this.redis.set(doneKey, '1', 'EX', 86400);
+    } catch (error) {
+      await this.handleSagaFailure(event, error);
+    } finally {
+      await this.redis.del(lockKey);
+    }
+  }
 
-      // Change password
-      await this.authService.handleChangePassword({
-        sessionId,
-        oldPassword: account.password,
-        newPassword,
+  // ─── STEP 3a: Thực thi các bước saga (với tracking để compensate đúng) ────────
+
+  private async executeSagaSteps(event: OutboxEvent): Promise<void> {
+    const payload = event.payload as BuyAccountRequest & { accountPrice: number };
+
+    // Lấy data cần thiết song song
+    const [emailBuyer, originalEmailResp] = await Promise.all([
+      this.authService.handleGetEmail({ id: payload.user_id }),
+      this.authService.handleGetEmailByUsername({ username: payload.username }),
+    ]);
+
+    const account = await this.partnerRepository.findOne({ where: { id: payload.id } });
+    if (!account)
+      throw new Error(`Account ${payload.id} not found`);
+
+    const newPassword = generateStrongPassword();
+    const sessionId = Buffer.from(payload.username).toString('base64');
+    const originalPassword = account.password;
+
+    // Track từng bước để compensation chính xác
+    let changePassDone = false;
+    let changeEmailDone = false;
+    let deductBuyerDone = false;
+    let creditPartnerDone = false;
+
+    try {
+      await this.authService.handleSystemChangePassword({ sessionId, newPassword });
+      changePassDone = true;
+
+      await this.authService.handleChangeEmail({ sessionId, newEmail: emailBuyer.email });
+      changeEmailDone = true;
+
+      await this.payService.updateMoney({ userId: payload.user_id, amount: -payload.accountPrice });
+      deductBuyerDone = true;
+
+      await this.payService.updateMoney({ userId: account.partner_id, amount: payload.accountPrice * 0.98 });
+      creditPartnerDone = true;
+
+      await this.authService.handleSetTokenVersion({ username: payload.username });
+
+      // Finalize: PENDING → SOLD
+      await this.partnerRepository.update(
+        { id: payload.id, status: 'PENDING' },
+        { status: 'SOLD', password: newPassword },
+      );
+
+    } catch (error) {
+      // Compensation song song, không throw để giữ nguyên error gốc
+      const compensations: Promise<any>[] = [];
+
+      if (creditPartnerDone)
+        compensations.push(
+          this.payService.updateMoney({ userId: account.partner_id, amount: -(payload.accountPrice * 0.98) })
+        );
+      if (deductBuyerDone)
+        compensations.push(
+          this.payService.updateMoney({ userId: payload.user_id, amount: payload.accountPrice })
+        );
+      if (changeEmailDone)
+        compensations.push(
+          this.authService.handleChangeEmail({ sessionId, newEmail: originalEmailResp.email })
+        );
+      if (changePassDone)
+        compensations.push(
+          this.authService.handleSystemChangePassword({ sessionId, newPassword: originalPassword })
+        );
+
+      const results = await Promise.allSettled(compensations);
+      results.forEach((result, i) => {
+        if (result.status === 'rejected')
+          console.error(`CRITICAL: compensation step ${i} failed — account ${payload.id}`, result.reason);
       });
-      passwordChanged = true;
-      await this.cacheManager.set(
-        `saga:buyAccount:${payload.user_id}:${payload.id}`,
-        JSON.stringify({
-          buyerPaid: buyerPaid,
-          sellerPaid: sellerPaid,
-          passwordChanged: passwordChanged,
-          emailChanged: emailChanged
-        })
-      ); 
 
-      // Change email
-      await this.authService.handleChangeEmail({
-        sessionId,
-        newEmail: emailBuyer.email,
-      });
-      emailChanged = true;
-      await this.cacheManager.set(
-        `saga:buyAccount:${payload.user_id}:${payload.id}`,
-        JSON.stringify({
-          buyerPaid: buyerPaid,
-          sellerPaid: sellerPaid,
-          passwordChanged: passwordChanged,
-          emailChanged: emailChanged
-        })
-      ); 
+      throw error; // re-throw để handleSagaFailure quyết định retry hay fail
+    }
+  }
 
-      // Step 4: update DB
-      await this.partnerRepository.manager.transaction(async (manager) => {
-        account.status = 'SOLD';
-        account.buyer_id = payload.user_id;
-        account.password = newPassword;
-        await manager.save(account);
+  // ─── STEP 3b: Xử lý failure — retry với exponential backoff hoặc compensate ──
+
+  private async handleSagaFailure(event: OutboxEvent, error: unknown): Promise<void> {
+    const payload = event.payload as { id: string };
+    const errorMessage = error instanceof Error ? error.message : String(error);
+
+    if (event.retries < event.maxRetries) {
+      // Exponential backoff: 30s → 2m → 10m
+      const delayMs = Math.pow(4, event.retries + 1) * 30_000;
+      const nextRetryAt = new Date(Date.now() + delayMs);
+
+      await this.outboxRepository.update(event.id, {
+        status: 'PENDING',
+        retries: event.retries + 1,
+        nextRetryAt,
+        lastError: errorMessage,
       });
 
-      await this.cacheManager.del(`saga:buyAccount:${payload.user_id}:${payload.id}`);
+      console.warn(
+        `Saga ${event.id} retry ${event.retries + 1}/${event.maxRetries} — next at ${nextRetryAt.toISOString()}`
+      );
+    } else {
+      // Hết retry: đưa account về ACTIVE và đánh FAILED
+      await this.outboxRepository.update(event.id, {
+        status: 'FAILED',
+        lastError: errorMessage,
+      });
 
-      return { username: account.username, password: newPassword };
-    } catch (err) {
-      // Step 5: compensating actions
-      if (emailChanged) {
-        await this.authService.handleChangeEmail({
-          sessionId,
-          newEmail: emailNguoiBan.email, // rollback về email cũ
-        }).catch(() => {});
-      }
+      await this.partnerRepository.update(
+        { id: Number(payload.id), status: 'PENDING' },
+        { status: 'ACTIVE', buyer_id: null },
+      ).catch(e => console.error(`CRITICAL: account ${payload.id} kẹt PENDING sau max retries`, e));
 
-      if (passwordChanged) {
-        await this.authService.handleChangePassword({
-          sessionId,
-          oldPassword: newPassword,
-          newPassword: account.password, // rollback password cũ
-        }).catch(() => {});
-      }
-
-      if (sellerPaid) {
-        await this.payService.updateMoney({ userId: account.partner_id, amount: -account.price * 0.98 }).catch(() => {});
-      }
-
-      if (buyerPaid) {
-        await this.payService.updateMoney({ userId: payload.user_id, amount: account.price }).catch(() => {});
-      }
-
-      await this.redisAccountService.rollbackAccount(payload.id); // rollback redis + lua
-
-      throw new RpcException({code: status.INTERNAL, message: err}); // rethrow để caller biết
+      // TODO: gửi alert (Slack, email, PagerDuty...)
+      console.error(`CRITICAL: Saga ${event.id} FAILED after ${event.maxRetries} retries — manual review needed`);
     }
   }
 

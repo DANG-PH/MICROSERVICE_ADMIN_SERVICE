@@ -10,7 +10,9 @@ import {
   LoginRequest,
   LoginResponse,
   SendEmailToUserRequest,
-  SystemChangePasswordRequest
+  SystemChangePasswordRequest,
+  SetTokenVersionRequest,
+  GetEmailUserByUsernameRequest
 } from 'proto/auth.pb';
 import { winstonLogger } from 'src/logger/logger.config'; 
 import { firstValueFrom } from 'rxjs';
@@ -50,6 +52,14 @@ export class AuthService {
 
   async handleSystemChangePassword(req: SystemChangePasswordRequest) {
     return firstValueFrom(this.authGrpcService.systemChangePassword(req));
+  }
+
+  async handleSetTokenVersion(req: SetTokenVersionRequest) {
+    return firstValueFrom(this.authGrpcService.setTokenVersion(req));
+  }
+
+  async handleGetEmailByUsername(req: GetEmailUserByUsernameRequest) {
+    return firstValueFrom(this.authGrpcService.getEmailUserByUsername(req));
   }
 }
 

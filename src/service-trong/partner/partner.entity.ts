@@ -1,4 +1,4 @@
-import { Entity, PrimaryGeneratedColumn, Column, CreateDateColumn } from 'typeorm';
+import { Entity, PrimaryGeneratedColumn, Column, CreateDateColumn, VersionColumn } from 'typeorm';
 
 @Entity('accounts_sell')
 export class Partner {
@@ -31,4 +31,7 @@ export class Partner {
 
   @CreateDateColumn()
   createdAt: Date;
+
+  @VersionColumn()
+  version: number; // dùng cho optimistic lock
 }
