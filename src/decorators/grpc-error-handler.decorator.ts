@@ -21,6 +21,9 @@ export function GrpcErrorHandler() {
       // Quan trọng: phải lưu ở đây vì bên dưới sẽ ghi đè descriptor.value
       const originalMethod = descriptor.value;
 
+      // lưu tất cả metadata keys từ method gốc
+      const metadataKeys = Reflect.getMetadataKeys(originalMethod);
+
       // Thay thế method gốc bằng wrapper function
       // Wrapper này có cùng signature (...args) nên transparent với caller
       descriptor.value = async function (...args: any[]) {
@@ -42,6 +45,12 @@ export function GrpcErrorHandler() {
           });
         }
       };
+
+      // restore toàn bộ metadata sang wrapper method
+      metadataKeys.forEach(key => {
+        const value = Reflect.getMetadata(key, originalMethod);
+        Reflect.defineMetadata(key, value, descriptor.value);
+      });
 
       // Ghi đè method trên prototype bằng wrapper mới
       // Tất cả instance của class sẽ dùng wrapper này thay vì method gốc

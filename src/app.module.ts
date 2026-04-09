@@ -16,6 +16,7 @@ import { ScheduleModule } from '@nestjs/schedule';
 
 @Module({
   imports: [
+    ScheduleModule.forRoot(),
     ConfigModule.forRoot({
       isGlobal: true,           
       envFilePath: '.env',     
@@ -50,7 +51,6 @@ import { ScheduleModule } from '@nestjs/schedule';
     AuthModule,
     RedisLowModule,
     EventEmitterModule.forRoot(), 
-    ScheduleModule.forRoot(),
   ],
   controllers: [AppController],
   providers: [AppService],

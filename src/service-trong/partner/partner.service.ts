@@ -668,35 +668,6 @@ export class PartnerService {
 
     return { accounts: mapped };
   }
-
-  async recoverSaga() {
-    const keys = await this.redis.keys('hdgstudio::hdgstudio:saga:buyAccount:*');
-    console.log(keys)
-    for (const key of keys) {
-      console.log(key)
-      const saga = JSON.parse(await this.redis.get(key) || '{}');
-      const [, userId, accountId] = key.split(':').slice(-3);
-      const sessionId = Buffer.from(accountId).toString('base64');
-      const account = await this.partnerRepository.findOne({ where: { id: Number(accountId) } });
-      if (!account) continue;
-      const sellerEmail = await this.authService.handleGetEmail({ id: Number(account.partner_id) });
-
-      if (saga.emailChanged) await this.authService.handleChangeEmail({ sessionId, newEmail: sellerEmail.email }).catch(() => {});
-      // if (saga.passwordChanged) await this.authService.handleChangePassword({ sessionId, oldPassword: generateStrongPassword(), newPassword: account.password }).catch(() => {}); // sai logic 1 chut nhung co email thi ko sao
-      if (saga.sellerPaid) await this.payService.updateMoney({ userId: account.partner_id, amount: -account.price * 0.98 }).catch(() => {});
-      if (saga.buyerPaid) await this.payService.updateMoney({ userId: Number(userId), amount: account.price }).catch(() => {});
-
-      await this.redis.del(key);
-    }
-  }
-
-  async onModuleInit() {
-    try {
-      await this.recoverSaga();
-    } catch (err) {
-      console.error('Error recovering saga:', err);
-    }
-  }
 }
 
 function generateStrongPassword(length = 14): string {
