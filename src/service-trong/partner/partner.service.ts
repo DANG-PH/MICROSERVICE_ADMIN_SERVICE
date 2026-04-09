@@ -584,8 +584,7 @@ export class PartnerService {
       await this.payService.updateMoney({ userId: account.partner_id, amount: payload.accountPrice * 0.98 });
       creditPartnerDone = true;
 
-      console.log("KICK USER: "+payload.username)
-      await this.authService.handleSetTokenVersion({ username: payload.username });
+      await this.authService.handleSetTokenVersion({ username: account.username });
 
       // Finalize: PENDING → SOLD
       await this.partnerRepository.update(
