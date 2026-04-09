@@ -11,6 +11,7 @@ import { PayModule } from './service-ngoai/pay/pay.module';
 import { RedisModule } from './redis/redis.module';
 import { AuthModule } from './service-ngoai/auth/auth.module';
 import { RedisLowModule } from './redis/redis-low.module';
+import { EventEmitterModule } from '@nestjs/event-emitter';
 
 @Module({
   imports: [
@@ -46,7 +47,8 @@ import { RedisLowModule } from './redis/redis-low.module';
     PayModule,
     RedisModule,
     AuthModule,
-    RedisLowModule
+    RedisLowModule,
+    EventEmitterModule.forRoot(), 
   ],
   controllers: [AppController],
   providers: [AppService],
