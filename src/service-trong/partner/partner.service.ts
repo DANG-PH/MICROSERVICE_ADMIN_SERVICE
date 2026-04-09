@@ -458,9 +458,16 @@ export class PartnerService {
         nextRetryAt: new Date(),
       });
       await manager.save(outbox);
+      // Trigger realtime luôn, còn cron job chỉ để fallback khi server crash khi emit hoặc emit này bị fail
+      this.eventEmitter.emit('outbox.created', outbox)
     });
 
     return { message: 'Đơn hàng đang được xử lý' };
+  }
+
+  @OnEvent('outbox.created')
+  handleOutbox(outbox: OutboxEvent) {
+    this.processOutboxEvent(outbox)
   }
 
   // ─── STEP 2: Cron job — poll outbox và đẩy vào queue ─────────────────────────
