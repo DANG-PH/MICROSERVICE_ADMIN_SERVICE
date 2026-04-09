@@ -555,7 +555,7 @@ export class PartnerService {
       throw new Error(`Account ${payload.id} not found`);
 
     const newPassword = generateStrongPassword();
-    const sessionId = Buffer.from(payload.username).toString('base64');
+    const sessionId = Buffer.from(account.username).toString('base64');
     const originalPassword = account.password;
 
     // Track từng bước để compensation chính xác
@@ -585,6 +585,12 @@ export class PartnerService {
         { id: payload.id, status: 'PENDING' },
         { status: 'SOLD', password: newPassword },
       );
+
+      await this.authService.handleSendEmailToUser({
+        who: payload.username, // email buyer
+        title: 'Mua tài khoản thành công',
+        content: `Username: ${account.username} | Password: ${newPassword}`
+      });
 
     } catch (error) {
       // Compensation song song, không throw để giữ nguyên error gốc
