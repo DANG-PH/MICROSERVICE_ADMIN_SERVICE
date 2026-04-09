@@ -12,6 +12,7 @@ import { RedisModule } from './redis/redis.module';
 import { AuthModule } from './service-ngoai/auth/auth.module';
 import { RedisLowModule } from './redis/redis-low.module';
 import { EventEmitterModule } from '@nestjs/event-emitter';
+import { ScheduleModule } from '@nestjs/schedule';
 
 @Module({
   imports: [
@@ -49,6 +50,7 @@ import { EventEmitterModule } from '@nestjs/event-emitter';
     AuthModule,
     RedisLowModule,
     EventEmitterModule.forRoot(), 
+    ScheduleModule.forRoot(),
   ],
   controllers: [AppController],
   providers: [AppService],
