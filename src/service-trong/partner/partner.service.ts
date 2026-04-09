@@ -467,7 +467,6 @@ export class PartnerService {
 
   @Cron(CronExpression.EVERY_5_SECONDS) // mỗi 5 giây
   async pollOutbox(): Promise<void> {
-    console.log('Polling...');
     const events = await this.outboxRepository.find({
       where: {
         status: 'PENDING',
@@ -485,7 +484,6 @@ export class PartnerService {
       );
       if (result.affected === 0) continue;
 
-      console.log('Polling outbox...');
       try {
         await this.processOutboxEvent(event)
       } catch (error) {
@@ -579,6 +577,7 @@ export class PartnerService {
       await this.payService.updateMoney({ userId: account.partner_id, amount: payload.accountPrice * 0.98 });
       creditPartnerDone = true;
 
+      console.log("KICK USER: "+payload.username)
       await this.authService.handleSetTokenVersion({ username: payload.username });
 
       // Finalize: PENDING → SOLD
