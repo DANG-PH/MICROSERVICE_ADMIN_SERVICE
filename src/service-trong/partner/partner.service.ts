@@ -484,18 +484,21 @@ export class PartnerService {
       );
       if (result.affected === 0) continue;
 
-      const buy_success: boolean = this.eventEmitter.emit('saga.buy_account', event)
-
-      // Đưa về PENDING để retry lần sau
-      if (!buy_success) await this.outboxRepository.update(event.id, { status: 'PENDING' });
+      console.log('Polling outbox...');
+      try {
+        await this.processOutboxEvent(event)
+      } catch (error) {
+        // Đưa về PENDING để retry lần sau
+        await this.outboxRepository.update(event.id, { status: 'PENDING' })
+      }
     }
   }
 
   // Dùng tạm thay queue ( có queue service rồi nhưng cảm giác chưa cần lắm )
-  @OnEvent('saga.buy_account')
-  async handle(event: OutboxEvent): Promise<void> {
-    await this.processOutboxEvent(event);
-  }
+  // @OnEvent('saga.buy_account')
+  // async handle(event: OutboxEvent): Promise<void> {
+  //   await this.processOutboxEvent(event);
+  // }
 
   @Cron('*/30 * * * * *')
   async recoverStuckProcessing(): Promise<void> {
