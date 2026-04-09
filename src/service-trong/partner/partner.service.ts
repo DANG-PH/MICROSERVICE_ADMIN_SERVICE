@@ -465,7 +465,7 @@ export class PartnerService {
 
   // ─── STEP 2: Cron job — poll outbox và đẩy vào queue ─────────────────────────
 
-  @Cron('* * * * *') // mỗi 5 giây
+  @Cron(CronExpression.EVERY_5_SECONDS) // mỗi 5 giây
   async pollOutbox(): Promise<void> {
     console.log('Polling...');
     const events = await this.outboxRepository.find({
