@@ -569,6 +569,11 @@ export class PartnerService {
     // TODO: Sau này cầm thêm idempotency key để tránh việc sau:
     // saga chạy được 3 cái done, sau đó crash thì nó sẽ chạy lại hàm này nhờ cron job và outbox
     // nhưng các biến dưới là inmemory state nên sẽ mất, và 3 cái done sẽ chạy lại, có thể dẫn đến sai lệch
+    // cần:
+    // Idempotency
+    // Retry (exponential backoff)
+    // Dead letter queue (DLQ)
+    
     let changePassDone = false;
     let changeEmailDone = false;
     let deductBuyerDone = false;
