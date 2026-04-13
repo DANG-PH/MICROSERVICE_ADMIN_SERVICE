@@ -1,4 +1,4 @@
-import { Entity, PrimaryGeneratedColumn, Column, CreateDateColumn, UpdateDateColumn } from 'typeorm';
+import { Entity, PrimaryGeneratedColumn, Column, CreateDateColumn, UpdateDateColumn, Index } from 'typeorm';
 
 @Entity('posts')
 export class Editor {
@@ -17,6 +17,7 @@ export class Editor {
   @Column({ type: 'text', nullable: false })
   content: string; 
 
+  @Index()
   @Column({ nullable: false })
   editor_id: number;  // dùng để truy vấn xem ai viết bài
 

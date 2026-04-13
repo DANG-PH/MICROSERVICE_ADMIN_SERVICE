@@ -1,4 +1,4 @@
-import { Entity, PrimaryGeneratedColumn, Column, CreateDateColumn, VersionColumn } from 'typeorm';
+import { Entity, PrimaryGeneratedColumn, Column, CreateDateColumn, VersionColumn, Index } from 'typeorm';
 
 @Entity('accounts_sell')
 export class Partner {
@@ -23,9 +23,11 @@ export class Partner {
   @Column({ nullable: false, default: "ACTIVE" })
   status: string; // SOLD, ACTIVE
 
+  @Index()
   @Column({ nullable: false })
   partner_id: number; // ai đăng bán acc
 
+  @Index()
   @Column({ nullable: true })
   buyer_id: number; // ai đã mua acc
 
