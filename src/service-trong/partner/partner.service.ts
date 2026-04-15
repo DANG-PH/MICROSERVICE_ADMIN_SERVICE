@@ -42,7 +42,7 @@ import { SagaPhase, SagaStateEntity } from './saga-state.entity';
 // Thứ tự decorator trong TypeScript: chạy từ dưới lên trên
 // 1. @Injectable() chạy trước → NestJS đánh dấu class để inject dependency
 // 2. @GrpcErrorHandler() chạy sau → wrap tất cả methods
-@GrpcErrorHandler()
+// @GrpcErrorHandler()
 @Injectable()
 export class PartnerService {
   constructor(
@@ -562,6 +562,11 @@ export class PartnerService {
   // ─── STEP 3a: Thực thi các bước saga (với tracking để compensate đúng) ────────
 
   private async executeSagaSteps(event: OutboxEvent): Promise<void> {
+    console.log('[SAGA START]', {
+      sagaId: event.id,
+      retries: event.retries,
+      maxRetries: event.maxRetries,
+    });
     const payload = event.payload as BuyAccountRequest & {
       accountPrice: number;
       newPassword: string;
@@ -570,6 +575,13 @@ export class PartnerService {
 
     // Load hoặc khởi tạo saga state
     let state = await this.sagaStateRepo.findOne({ where: { saga_id: event.id } });
+
+    console.log('[SAGA STATE]', {
+      sagaId: event.id,
+      phase: state.phase,
+      attempt: state.attempt,
+      completed: state.completed_steps,
+    });
 
     if (!state) {
       // Lần đầu chạy — fetch original data và persist vào state ngay
@@ -783,7 +795,7 @@ export class PartnerService {
     const errorMessage = error instanceof Error ? error.message : String(error);
 
     if (event.retries < event.maxRetries) {
-      const delayMs = Math.pow(4, event.retries + 1) * 30_000;
+      const delayMs = Math.pow(2, event.retries) * 30_000;
       const nextRetryAt = new Date(Date.now() + delayMs);
 
       await this.outboxRepository.update(event.id, {
