@@ -574,7 +574,38 @@ export class PartnerService {
     };
 
     // Load hoặc khởi tạo saga state
-    let state = await this.sagaStateRepo.findOne({ where: { saga_id: event.id } });
+    let state = await this.sagaStateRepo.findOne({
+      where: { saga_id: event.id },
+    });
+
+    if (!state) {
+      try {
+        const [originalEmailResp, account] = await Promise.all([
+          this.authService.handleGetEmailByUsername({ username: payload.username }),
+          this.partnerRepository.findOne({ where: { id: payload.id } }),
+        ]);
+
+        if (!account) throw new Error(`Account ${payload.id} not found`);
+
+        state = await this.sagaStateRepo.save({
+          saga_id: event.id,
+          phase: SagaPhase.FORWARD,
+          attempt: 1,
+          completed_steps: [],
+          original_password: account.password,
+          original_email: originalEmailResp.email,
+        });
+      } catch (e) {
+        // nếu bị duplicate → fetch lại
+        state = await this.sagaStateRepo.findOne({
+          where: { saga_id: event.id },
+        });
+      }
+    }
+
+    if (!state) {
+      throw new Error(`Cannot initialize saga state ${event.id}`);
+    }
 
     console.log('[SAGA STATE]', {
       sagaId: event.id,
@@ -582,24 +613,6 @@ export class PartnerService {
       attempt: state.attempt,
       completed: state.completed_steps,
     });
-
-    if (!state) {
-      // Lần đầu chạy — fetch original data và persist vào state ngay
-      const [originalEmailResp, account] = await Promise.all([
-        this.authService.handleGetEmailByUsername({ username: payload.username }),
-        this.partnerRepository.findOne({ where: { id: payload.id } }),
-      ]);
-      if (!account) throw new Error(`Account ${payload.id} not found`);
-
-      state = await this.sagaStateRepo.save({
-        saga_id: event.id,
-        phase: SagaPhase.FORWARD,
-        attempt: 1,
-        completed_steps: [],
-        original_password: account.password,  // persist ngay — không đọc lại sau
-        original_email: originalEmailResp.email,
-      });
-    }
 
     // Routing theo phase
     // State-based idempotency
@@ -615,6 +628,19 @@ export class PartnerService {
     try {
       await this.runForward(payload, state);
     } catch (error) {
+      console.error('[SAGA ERROR]', {
+        sagaId: event.id,
+        phase: state.phase,
+        attempt: state.attempt,
+        completed: state.completed_steps,
+        error: {
+          name: (error as any)?.name,
+          message: (error as any)?.message,
+          code: (error as any)?.code,
+          stack: (error as any)?.stack,
+          raw: error,
+        },
+      });
       const shouldCompensate = this.isBusinessError(error);
 
       if (shouldCompensate) {
@@ -643,48 +669,74 @@ export class PartnerService {
 
     // Fetch email buyer — chỉ cần cho forward
     const emailBuyer = await this.authService.handleGetEmail({ id: payload.user_id });
+    console.log("EMAIL BUYER: "+emailBuyer)
 
-    // ── Step 1 ──────────────────────────────────────────────────────────────
-    if (!done('changePass')) {
-      await this.authService.handleSystemChangePassword({
-        sessionId,
-        newPassword: payload.newPassword,
-        idempotencyKey: key('changePass'),
-      });
-      await this.markStep(state, 'changePass');
-    }
+    const runStep = async (name: string, fn: () => Promise<void>) => {
+      if (done(name)) {
+        console.log(`[STEP SKIP] ${name}`);
+        return;
+      }
 
-    // ── Step 2 ──────────────────────────────────────────────────────────────
-    if (!done('changeEmail')) {
-      await this.authService.handleChangeEmail({
-        sessionId,
-        newEmail: emailBuyer.email,
-        idempotencyKey: key('changeEmail'),
+      console.log(`[STEP START] ${name}`, {
+        attempt: state.attempt,
+        key: key(name),
       });
-      await this.markStep(state, 'changeEmail');
-    }
 
-    // ── Step 3 ──────────────────────────────────────────────────────────────
-    if (!done('deductBuyer')) {
-      // Việc check balance trước là đúng để fail-fast UX, nhưng không thể bỏ check trong saga. Hiện tại deductBuyer dùng updateMoney — nếu service pay không có guard âm số dư thì user mua được dù không đủ tiền.
-      // Fix: Service pay phải enforce "không cho số dư âm" tại chính updateMoney, hoặc saga cần re-check balance trong runForward trước step deduct.
-      await this.payService.updateMoney({
-        userId: payload.user_id,
-        amount: -payload.accountPrice,
-        idempotencyKey: key('deductBuyer'),
-      });
-      await this.markStep(state, 'deductBuyer');
-    }
+      const start = Date.now();
 
-    // ── Step 4 ──────────────────────────────────────────────────────────────
-    if (!done('creditPartner')) {
-      await this.payService.updateMoney({
-        userId: account.partner_id,
-        amount: payload.accountPrice * 0.98,
-        idempotencyKey: key('creditPartner'),
-      });
-      await this.markStep(state, 'creditPartner');
-    }
+      try {
+        await fn();
+        await this.markStep(state, name);
+
+        console.log(`[STEP OK] ${name}`, {
+          duration: Date.now() - start,
+        });
+      } catch (error) {
+        console.error(`[STEP FAIL] ${name}`, {
+          duration: Date.now() - start,
+          error: {
+            name: (error as any)?.name,
+            message: (error as any)?.message,
+            code: (error as any)?.code,
+            details: (error as any)?.details,
+          },
+        });
+
+        throw error;
+      }
+    };
+
+await runStep('changePass', async () => {
+  await this.authService.handleSystemChangePassword({
+    sessionId,
+    newPassword: payload.newPassword,
+    idempotencyKey: key('changePass'),
+  });
+});
+
+await runStep('changeEmail', async () => {
+  await this.authService.handleChangeEmail({
+    sessionId,
+    newEmail: emailBuyer.email,
+    idempotencyKey: key('changeEmail'),
+  });
+});
+
+await runStep('deductBuyer', async () => {
+  await this.payService.updateMoney({
+    userId: payload.user_id,
+    amount: -payload.accountPrice,
+    idempotencyKey: key('deductBuyer'),
+  });
+});
+
+await runStep('creditPartner', async () => {
+  await this.payService.updateMoney({
+    userId: account.partner_id,
+    amount: payload.accountPrice * 0.98,
+    idempotencyKey: key('creditPartner'),
+  });
+});
 
     // ── Finalize — idempotent, không cần guard ───────────────────────────────
     await this.authService.handleSetTokenVersion({ username: account.username });
