@@ -46,7 +46,7 @@ export class EditorService {
 
   // ====== Lấy tất cả bài viết ======
   async getAllPosts(): Promise<ListPostResponse> {
-    const posts = await this.editorRepository.find();
+    const posts = await this.editorRepository.find({ where: { status: 'ACTIVE' } });
     const mappedPosts = posts.map(post => ({
       ...post,
       create_at: post.create_at.toISOString(),
@@ -59,6 +59,7 @@ export class EditorService {
   async getPostById(payload: GetPostByIdRequest): Promise<PostResponse> {
     const post = await this.editorRepository.findOne({ where: { id: payload.id } });
     if (!post) throw new RpcException({code: status.NOT_FOUND, message: 'Không tìm thấy bài viết'});
+    if (post.status === 'LOCKED') throw new RpcException({ code: status.PERMISSION_DENIED, message: 'Bài viết đã bị khóa' });
     return { 
       post: {
         ...post,
@@ -72,7 +73,8 @@ export class EditorService {
   async updatePost(payload: UpdatePostRequest): Promise<PostResponse> {
     const post = await this.editorRepository.findOne({ where: { id: payload.id } });
     if (!post) throw new RpcException({code: status.NOT_FOUND, message: 'Không tìm thấy bài viết'});;
-
+    if (post.status === 'LOCKED') throw new RpcException({ code: status.PERMISSION_DENIED, message: 'Không thể sửa bài đã bị khóa' });
+    
     post.title = payload.title ?? post.title;
     post.url_anh = payload.url_anh ?? post.url_anh;
     post.update_at = new Date();
