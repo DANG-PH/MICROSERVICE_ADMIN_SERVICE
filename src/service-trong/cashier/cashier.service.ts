@@ -29,7 +29,7 @@ export class CashierService {
    // ====== Tạo yêu cầu rút tiền ======
   async createWithdrawRequest(payload: CreateWithdrawRequestt): Promise<WithdrawResponse> {
     // 1. Kiểm tra số dư của người dùng
-    const payResp = await this.payService.getPay({userId: payload.user_id});
+    const payResp = await this.payService.getPay({userId: payload.userId});
 
     if (!payResp.pay) throw new RpcException({ code: status.NOT_FOUND, message: 'Không tìm thấy ví, vui lòng liên hệ admin để xử lí' });
 
@@ -42,7 +42,7 @@ export class CashierService {
 
     // 2. Tạo bản ghi rút tiền
     const newWithdraw = this.cashierRepository.create({
-      user_id: payload.user_id,
+      userId: payload.userId,
       amount: payload.amount,
       bank_name: payload.bank_name,
       bank_number: payload.bank_number,
@@ -53,9 +53,9 @@ export class CashierService {
 
     const saved = await this.cashierRepository.save(newWithdraw);
 
-    const key = `rut_tien:${payload.user_id}:${saved.id}`;;
+    const key = `rut_tien:${payload.userId}:${saved.id}`;;
     await this.cacheManager.set(key, payload.amount);
-    await this.payService.updateMoney({userId: payload.user_id, amount: 0-payload.amount, idempotencyKey: "RUT_TIEN: "+newWithdraw.id})
+    await this.payService.updateMoney({userId: payload.userId, amount: 0-payload.amount, idempotencyKey: "RUT_TIEN: "+newWithdraw.id})
     return {
       withdraw: {
         ...saved,
@@ -71,7 +71,7 @@ export class CashierService {
     // Hoặc nó sẽ sai khi insert mới,... thay đổi gì đó
     // K có order by thì nghiễm nhiên db trả set
     // Mặc dù nó có thể đúng trong 1 khoảng thời điểm
-    const withdraws = await this.cashierRepository.find({ where: { user_id: payload.user_id } });
+    const withdraws = await this.cashierRepository.find({ where: { userId: payload.userId } });
     const mappedWithdraws = withdraws.map(withdraw => ({
       ...withdraw,
       request_at: withdraw.request_at.toISOString(),
@@ -106,18 +106,18 @@ export class CashierService {
 
     const updated = await this.cashierRepository.save(withdraw);
 
-    const key = `rut_tien:${withdraw.user_id}:${withdraw.id}`;;
+    const key = `rut_tien:${withdraw.userId}:${withdraw.id}`;;
     await this.cacheManager.del(key)
     
     await this.payService.handleCreateFinanceRecord(
       {
         amount: updated.amount,
         type: "RUT",
-        user_id: updated.user_id
+        userId: updated.userId
       }
     ); // tạo bản ghi trong db finance
 
-    winstonLogger.log({ nhiemVu: 'thongBaoRutTien', userId: updated.user_id, amount: updated.amount, adminId: updated.finance_id })
+    winstonLogger.log({ nhiemVu: 'thongBaoRutTien', userId: updated.userId, amount: updated.amount, adminId: updated.finance_id })
 
     return {
       withdraw: {
@@ -139,12 +139,12 @@ export class CashierService {
 
     const updated = await this.cashierRepository.save(withdraw);
 
-    const payResp = await this.payService.getPay({userId: withdraw.user_id});
+    const payResp = await this.payService.getPay({userId: withdraw.userId});
     const userBalance = Number(payResp.pay?.tien) || 0;
-    const key = `rut_tien:${withdraw.user_id}:${withdraw.id}`;;
+    const key = `rut_tien:${withdraw.userId}:${withdraw.id}`;;
     let amount_back = (await this.cacheManager.get<number>(key)) || 0;
     
-    await this.payService.updateMoney({userId: withdraw.user_id, amount: amount_back, idempotencyKey: "HUY_RUT_TIEN: "+withdraw.id})
+    await this.payService.updateMoney({userId: withdraw.userId, amount: amount_back, idempotencyKey: "HUY_RUT_TIEN: "+withdraw.id})
     return {
       withdraw: {
         ...updated,

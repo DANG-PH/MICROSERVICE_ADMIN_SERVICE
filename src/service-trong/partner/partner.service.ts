@@ -339,20 +339,20 @@ export class PartnerService {
   }
 
   // ====== Đánh dấu account đã bán hoặc active ======
-  async markAccountAsSold(payload: UpdateAccountStatusRequest): Promise<AccountSellResponse> {
-    const account = await this.partnerRepository.findOne({ where: { id: payload.id } });
-    if (!account) throw new RpcException({ code: status.NOT_FOUND, message: 'Không tìm thấy account' });
+  // async markAccountAsSold(payload: UpdateAccountStatusRequest): Promise<AccountSellResponse> {
+  //   const account = await this.partnerRepository.findOne({ where: { id: payload.id } });
+  //   if (!account) throw new RpcException({ code: status.NOT_FOUND, message: 'Không tìm thấy account' });
 
-    account.status = payload.status;
-    const updated = await this.partnerRepository.save(account);
+  //   account.status = payload.status;
+  //   const updated = await this.partnerRepository.save(account);
 
-    return {
-      account: {
-        ...updated,
-        createdAt: updated.createdAt.toISOString(),
-      },
-    };
-  }
+  //   return {
+  //     account: {
+  //       ...updated,
+  //       createdAt: updated.createdAt.toISOString(),
+  //     },
+  //   };
+  // }
 
   async buyAccount(payload: BuyAccountRequest): Promise<BuyAccountResponse> {
     return await this.partnerRepository.manager.transaction(async (manager) => { // transaction roll back
@@ -376,14 +376,14 @@ export class PartnerService {
         });
       }
 
-      const payResp = await this.payService.getPay({userId: payload.user_id});
+      const payResp = await this.payService.getPay({userId: payload.userId});
       const userBalance = Number(payResp.pay?.tien) || 0;
 
       if (account.price > userBalance) {
         throw new RpcException({ code: status.FAILED_PRECONDITION, message: 'Số dư không đủ để mua tài khoản này' });
       }
 
-      const emailBuyer = await this.authService.handleGetEmail({id: payload.user_id});
+      const emailBuyer = await this.authService.handleGetEmail({id: payload.userId});
       const newPassword = generateStrongPassword();
 
       const sessionId = Buffer.from(account.username).toString('base64');
@@ -399,7 +399,7 @@ export class PartnerService {
       // })
 
       //Trừ tiền người mua nick
-      // await this.payService.updateMoney({userId: payload.user_id, amount: 0-account.price})
+      // await this.payService.updateMoney({userId: payload.userId, amount: 0-account.price})
       // //Trừ tiền cộng tiền cho partner bán nick
       // await this.payService.updateMoney({userId: account.partner_id, amount: account.price*0.98})
 
@@ -407,7 +407,7 @@ export class PartnerService {
       await this.authService.handleSetTokenVersion({username: account.username})
 
       account.status = 'SOLD';
-      account.buyer_id = payload.user_id;
+      account.buyer_id = payload.userId;
       account.password = newPassword;
       await manager.save(account);
 
@@ -430,7 +430,7 @@ export class PartnerService {
       throw new RpcException({ code: status.FAILED_PRECONDITION, message: 'Tài khoản đã được bán' });
 
     // Check số dư trước (network call, ngoài transaction để tránh giữ lock lâu)
-    const payResp = await this.payService.getPay({ userId: payload.user_id });
+    const payResp = await this.payService.getPay({ userId: payload.userId });
     const userBalance = Number(payResp.pay?.tien) || 0;
     if (account.price > userBalance)
       throw new RpcException({ code: status.FAILED_PRECONDITION, message: 'Số dư không đủ' });
@@ -446,7 +446,7 @@ export class PartnerService {
         throw new RpcException({ code: status.FAILED_PRECONDITION, message: 'Tài khoản không còn khả dụng' });
 
       locked.status = 'PENDING';
-      locked.buyer_id = payload.user_id;
+      locked.buyer_id = payload.userId;
       await manager.save(locked);
 
       // Outbox ghi cùng transaction — đây là điểm mấu chốt
@@ -459,10 +459,10 @@ export class PartnerService {
           accountPrice: account.price,
           newPassword: generateStrongPassword(),
           idemKeys: {
-            changePass:    `${payload.id}:${payload.user_id}:changePass`,
-            changeEmail:   `${payload.id}:${payload.user_id}:changeEmail`,
-            deductBuyer:   `${payload.id}:${payload.user_id}:deductBuyer`,
-            creditPartner: `${payload.id}:${payload.user_id}:creditPartner`,
+            changePass:    `${payload.id}:${payload.userId}:changePass`,
+            changeEmail:   `${payload.id}:${payload.userId}:changeEmail`,
+            deductBuyer:   `${payload.id}:${payload.userId}:deductBuyer`,
+            creditPartner: `${payload.id}:${payload.userId}:creditPartner`,
           }
         },
         status: 'PENDING',
@@ -668,7 +668,7 @@ export class PartnerService {
     const sessionId = Buffer.from(account.username).toString('base64');
 
     // Fetch email buyer — chỉ cần cho forward
-    const emailBuyer = await this.authService.handleGetEmail({ id: payload.user_id });
+    const emailBuyer = await this.authService.handleGetEmail({ id: payload.userId });
 
     const runStep = async (name: string, fn: () => Promise<void>) => {
       if (done(name)) {
@@ -723,7 +723,7 @@ await runStep('changeEmail', async () => {
 
 await runStep('deductBuyer', async () => {
   await this.payService.updateMoney({
-    userId: payload.user_id,
+    userId: payload.userId,
     amount: -payload.accountPrice,
     idempotencyKey: key('deductBuyer'),
   });
@@ -785,7 +785,7 @@ await runStep('creditPartner', async () => {
 
     if (shouldComp('deductBuyer') && !doneComp('deductBuyer')) {
       await this.payService.updateMoney({
-        userId: payload.user_id,
+        userId: payload.userId,
         amount: payload.accountPrice,
         idempotencyKey: compKey('deductBuyer'),
       });

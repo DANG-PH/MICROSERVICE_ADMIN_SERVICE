@@ -156,10 +156,10 @@ export class AdminController {
     return this.partnerService.getAccountById(payload);
   }
 
-  @GrpcMethod(PARTNER_SERVICE_NAME, 'MarkAccountAsSold')
-  async markAccountAsSold(payload: UpdateAccountStatusRequest): Promise<AccountSellResponse> {
-    return this.partnerService.markAccountAsSold(payload);
-  }
+  // @GrpcMethod(PARTNER_SERVICE_NAME, 'MarkAccountAsSold')
+  // async markAccountAsSold(payload: UpdateAccountStatusRequest): Promise<AccountSellResponse> {
+  //   return this.partnerService.markAccountAsSold(payload);
+  // }
 
   @GrpcMethod(PARTNER_SERVICE_NAME, 'BuyAccount')
   async buyAccount(payload: BuyAccountRequest): Promise<BuyAccountResponse> {
