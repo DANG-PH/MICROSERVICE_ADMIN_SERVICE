@@ -55,7 +55,7 @@ export class CashierService {
 
     const key = `rut_tien:${payload.user_id}:${saved.id}`;;
     await this.cacheManager.set(key, payload.amount);
-    await this.payService.updateMoney({userId: payload.user_id, amount: 0-payload.amount})
+    await this.payService.updateMoney({userId: payload.user_id, amount: 0-payload.amount, idempotencyKey: "RUT_TIEN: "+newWithdraw.id})
     return {
       withdraw: {
         ...saved,
@@ -67,6 +67,10 @@ export class CashierService {
 
   // ====== Lấy lịch sử rút tiền của user ======
   async getWithdrawsByUser(payload: GetWithdrawsByUserRequest): Promise<ListWithdrawResponse> {
+    // K có sort gọi như này thì db sẽ query theo từng plan tối ưu
+    // Hoặc nó sẽ sai khi insert mới,... thay đổi gì đó
+    // K có order by thì nghiễm nhiên db trả set
+    // Mặc dù nó có thể đúng trong 1 khoảng thời điểm
     const withdraws = await this.cashierRepository.find({ where: { user_id: payload.user_id } });
     const mappedWithdraws = withdraws.map(withdraw => ({
       ...withdraw,
@@ -140,7 +144,7 @@ export class CashierService {
     const key = `rut_tien:${withdraw.user_id}:${withdraw.id}`;;
     let amount_back = (await this.cacheManager.get<number>(key)) || 0;
     
-    await this.payService.updateMoney({userId: withdraw.user_id, amount: amount_back})
+    await this.payService.updateMoney({userId: withdraw.user_id, amount: amount_back, idempotencyKey: "HUY_RUT_TIEN: "+withdraw.id})
     return {
       withdraw: {
         ...updated,

@@ -36,6 +36,7 @@ import * as bcrypt from 'bcrypt';
 import { OutboxEvent } from './outbox-event.entity';
 import { Cron, CronExpression } from '@nestjs/schedule';
 import { EventEmitter2, OnEvent } from '@nestjs/event-emitter';
+import { SagaPhase, SagaStateEntity } from './saga-state.entity';
 
 // @GrpcErrorHandler() chạy TRƯỚC @Injectable()
 // Thứ tự decorator trong TypeScript: chạy từ dưới lên trên
@@ -49,6 +50,8 @@ export class PartnerService {
     private readonly partnerRepository: Repository<Partner>,
     @InjectRepository(OutboxEvent)
     private readonly outboxRepository: Repository<OutboxEvent>,
+    @InjectRepository(SagaStateEntity)
+    private readonly sagaStateRepo: Repository<SagaStateEntity>,
     private readonly payService: PayService,
     private readonly authService: AuthService,
     @Inject(CACHE_MANAGER) private cacheManager: Cache,
@@ -385,20 +388,20 @@ export class PartnerService {
 
       const sessionId = Buffer.from(account.username).toString('base64');
 
-      await this.authService.handleSystemChangePassword({
-        sessionId: sessionId,
-        newPassword: newPassword
-      })
+      // await this.authService.handleSystemChangePassword({
+      //   sessionId: sessionId,
+      //   newPassword: newPassword
+      // })
 
-      await this.authService.handleChangeEmail({
-        sessionId: sessionId,
-        newEmail: emailBuyer.email
-      })
+      // await this.authService.handleChangeEmail({
+      //   sessionId: sessionId,
+      //   newEmail: emailBuyer.email
+      // })
 
       //Trừ tiền người mua nick
-      await this.payService.updateMoney({userId: payload.user_id, amount: 0-account.price})
-      //Trừ tiền cộng tiền cho partner bán nick
-      await this.payService.updateMoney({userId: account.partner_id, amount: account.price*0.98})
+      // await this.payService.updateMoney({userId: payload.user_id, amount: 0-account.price})
+      // //Trừ tiền cộng tiền cho partner bán nick
+      // await this.payService.updateMoney({userId: account.partner_id, amount: account.price*0.98})
 
       // Tăng tokenVersion (Tránh user cũ vẫn vào được tài khoản)
       await this.authService.handleSetTokenVersion({username: account.username})
@@ -451,7 +454,17 @@ export class PartnerService {
       // Nếu crash sau commit → cron sẽ pick up và retry
       const outbox = manager.create(OutboxEvent, {
         sagaType: 'BUY_ACCOUNT',
-        payload: { ...payload, accountPrice: account.price },
+        payload: {
+          ...payload,
+          accountPrice: account.price,
+          newPassword: generateStrongPassword(),
+          idemKeys: {
+            changePass:    `${payload.id}:${payload.user_id}:changePass`,
+            changeEmail:   `${payload.id}:${payload.user_id}:changeEmail`,
+            deductBuyer:   `${payload.id}:${payload.user_id}:deductBuyer`,
+            creditPartner: `${payload.id}:${payload.user_id}:creditPartner`,
+          }
+        },
         status: 'PENDING',
         retries: 0,
         maxRetries: 3,
@@ -529,7 +542,7 @@ export class PartnerService {
     }
 
     // Distributed lock: ngăn duplicate processing khi nhiều consumer chạy song song
-    const acquired = await this.redis.set(lockKey, '1', 'EX', 300, 'NX');
+    const acquired = await this.redis.set(lockKey, '1', 'EX', 600, 'NX');
     if (!acquired) return; // consumer khác đang xử lý
 
     try {
@@ -549,92 +562,218 @@ export class PartnerService {
   // ─── STEP 3a: Thực thi các bước saga (với tracking để compensate đúng) ────────
 
   private async executeSagaSteps(event: OutboxEvent): Promise<void> {
-    const payload = event.payload as BuyAccountRequest & { accountPrice: number };
+    const payload = event.payload as BuyAccountRequest & {
+      accountPrice: number;
+      newPassword: string;
+      idemKeys: Record<string, string>;
+    };
 
-    // Lấy data cần thiết song song
-    const [emailBuyer, originalEmailResp] = await Promise.all([
-      this.authService.handleGetEmail({ id: payload.user_id }),
-      this.authService.handleGetEmailByUsername({ username: payload.username }),
-    ]);
+    // Load hoặc khởi tạo saga state
+    let state = await this.sagaStateRepo.findOne({ where: { saga_id: event.id } });
+
+    if (!state) {
+      // Lần đầu chạy — fetch original data và persist vào state ngay
+      const [originalEmailResp, account] = await Promise.all([
+        this.authService.handleGetEmailByUsername({ username: payload.username }),
+        this.partnerRepository.findOne({ where: { id: payload.id } }),
+      ]);
+      if (!account) throw new Error(`Account ${payload.id} not found`);
+
+      state = await this.sagaStateRepo.save({
+        saga_id: event.id,
+        phase: SagaPhase.FORWARD,
+        attempt: 1,
+        completed_steps: [],
+        original_password: account.password,  // persist ngay — không đọc lại sau
+        original_email: originalEmailResp.email,
+      });
+    }
+
+    // Routing theo phase
+    // State-based idempotency
+    if (state.phase === SagaPhase.DONE) return;
+
+    if (state.phase === SagaPhase.COMPENSATING) {
+      // Crash giữa compensation → tiếp tục compensation, tuyệt đối không forward
+      await this.runCompensation(payload, state);
+      return;
+    }
+
+    // phase === FORWARD
+    try {
+      await this.runForward(payload, state);
+    } catch (error) {
+      const shouldCompensate = this.isBusinessError(error);
+
+      if (shouldCompensate) {
+        // Persist phase trước — nếu crash sau dòng này, retry sẽ vào COMPENSATING
+        await this.sagaStateRepo.update(state.saga_id, { phase: SagaPhase.COMPENSATING });
+        state.phase = SagaPhase.COMPENSATING;
+        await this.runCompensation(payload, state);
+      }
+
+      // Throw để handleSagaFailure xử lý retry/dead-letter
+      throw error;
+    }
+  }
+
+  private async runForward(
+    payload: BuyAccountRequest & { accountPrice: number; newPassword: string; idemKeys: Record<string, string> },
+    state: SagaStateEntity,
+  ): Promise<void> {
+    // idemKey gắn theo attempt — sau compensation xong, attempt tăng → key mới → downstream chạy lại
+    const key = (step: string) => `${payload.idemKeys[step]}:v${state.attempt}`;
+    const done = (step: string) => state.completed_steps.includes(step);
 
     const account = await this.partnerRepository.findOne({ where: { id: payload.id } });
-    if (!account)
-      throw new Error(`Account ${payload.id} not found`);
-
-    const newPassword = generateStrongPassword();
+    if (!account) throw new Error(`Account ${payload.id} not found`);
     const sessionId = Buffer.from(account.username).toString('base64');
-    const originalPassword = account.password;
 
-    // Track từng bước để compensation chính xác
-    // TODO: Sau này cầm thêm idempotency key để tránh việc sau:
-    // saga chạy được 3 cái done, sau đó crash thì nó sẽ chạy lại hàm này nhờ cron job và outbox
-    // nhưng các biến dưới là inmemory state nên sẽ mất, và 3 cái done sẽ chạy lại, có thể dẫn đến sai lệch
-    // cần:
-    // Idempotency
-    // Retry (exponential backoff)
-    // Dead letter queue (DLQ)
-    
-    let changePassDone = false;
-    let changeEmailDone = false;
-    let deductBuyerDone = false;
-    let creditPartnerDone = false;
+    // Fetch email buyer — chỉ cần cho forward
+    const emailBuyer = await this.authService.handleGetEmail({ id: payload.user_id });
 
-    try {
-      await this.authService.handleSystemChangePassword({ sessionId, newPassword });
-      changePassDone = true;
-
-      await this.authService.handleChangeEmail({ sessionId, newEmail: emailBuyer.email });
-      changeEmailDone = true;
-
-      await this.payService.updateMoney({ userId: payload.user_id, amount: -payload.accountPrice });
-      deductBuyerDone = true;
-
-      await this.payService.updateMoney({ userId: account.partner_id, amount: payload.accountPrice * 0.98 });
-      creditPartnerDone = true;
-
-      await this.authService.handleSetTokenVersion({ username: account.username });
-
-      // Finalize: PENDING → SOLD
-      await this.partnerRepository.update(
-        { id: payload.id, status: 'PENDING' },
-        { status: 'SOLD', password: newPassword },
-      );
-
-      await this.authService.handleSendEmailToUser({
-        who: payload.username, // email buyer
-        title: 'Mua tài khoản thành công',
-        content: `Username: ${account.username} | Password: ${newPassword}`
+    // ── Step 1 ──────────────────────────────────────────────────────────────
+    if (!done('changePass')) {
+      await this.authService.handleSystemChangePassword({
+        sessionId,
+        newPassword: payload.newPassword,
+        idempotencyKey: key('changePass'),
       });
-
-    } catch (error) {
-      // Compensation song song, không throw để giữ nguyên error gốc
-      const compensations: Promise<any>[] = [];
-
-      if (creditPartnerDone)
-        compensations.push(
-          this.payService.updateMoney({ userId: account.partner_id, amount: -(payload.accountPrice * 0.98) })
-        );
-      if (deductBuyerDone)
-        compensations.push(
-          this.payService.updateMoney({ userId: payload.user_id, amount: payload.accountPrice })
-        );
-      if (changeEmailDone)
-        compensations.push(
-          this.authService.handleChangeEmail({ sessionId, newEmail: originalEmailResp.email })
-        );
-      if (changePassDone)
-        compensations.push(
-          this.authService.handleSystemChangePassword({ sessionId, newPassword: originalPassword })
-        );
-
-      const results = await Promise.allSettled(compensations);
-      results.forEach((result, i) => {
-        if (result.status === 'rejected')
-          console.error(`CRITICAL: compensation step ${i} failed — account ${payload.id}`, result.reason);
-      });
-
-      throw error; // re-throw để handleSagaFailure quyết định retry hay fail
+      await this.markStep(state, 'changePass');
     }
+
+    // ── Step 2 ──────────────────────────────────────────────────────────────
+    if (!done('changeEmail')) {
+      await this.authService.handleChangeEmail({
+        sessionId,
+        newEmail: emailBuyer.email,
+        idempotencyKey: key('changeEmail'),
+      });
+      await this.markStep(state, 'changeEmail');
+    }
+
+    // ── Step 3 ──────────────────────────────────────────────────────────────
+    if (!done('deductBuyer')) {
+      // Việc check balance trước là đúng để fail-fast UX, nhưng không thể bỏ check trong saga. Hiện tại deductBuyer dùng updateMoney — nếu service pay không có guard âm số dư thì user mua được dù không đủ tiền.
+      // Fix: Service pay phải enforce "không cho số dư âm" tại chính updateMoney, hoặc saga cần re-check balance trong runForward trước step deduct.
+      await this.payService.updateMoney({
+        userId: payload.user_id,
+        amount: -payload.accountPrice,
+        idempotencyKey: key('deductBuyer'),
+      });
+      await this.markStep(state, 'deductBuyer');
+    }
+
+    // ── Step 4 ──────────────────────────────────────────────────────────────
+    if (!done('creditPartner')) {
+      await this.payService.updateMoney({
+        userId: account.partner_id,
+        amount: payload.accountPrice * 0.98,
+        idempotencyKey: key('creditPartner'),
+      });
+      await this.markStep(state, 'creditPartner');
+    }
+
+    // ── Finalize — idempotent, không cần guard ───────────────────────────────
+    await this.authService.handleSetTokenVersion({ username: account.username });
+    await this.partnerRepository.update(
+      { id: payload.id, status: 'PENDING' },
+      { status: 'SOLD', password: payload.newPassword },
+    );
+    if (!done('emailSent')) {
+      await this.authService.handleSendEmailToUser({
+        who: payload.username,
+        title: 'Mua tài khoản thành công',
+        content: `Username: ${account.username} | Password: ${payload.newPassword}`,
+      });
+      await this.markStep(state, 'emailSent');
+    }
+
+    await this.sagaStateRepo.update(state.saga_id, { phase: SagaPhase.DONE });
+  }
+
+  private async runCompensation(
+    payload: BuyAccountRequest & { accountPrice: number; newPassword: string; idemKeys: Record<string, string> },
+    state: SagaStateEntity,
+  ): Promise<void> {
+    const account = await this.partnerRepository.findOne({ where: { id: payload.id } });
+    if (!account) throw new Error(`Account ${payload.id} not found`);
+    const sessionId = Buffer.from(account.username).toString('base64');
+
+    // Key compensation gắn với attempt hiện tại → idempotent khi retry compensation
+    const compKey = (step: string) => `${payload.idemKeys[step]}:v${state.attempt}:compensate`;
+
+    // Chỉ compensate step đã forward thành công
+    const shouldComp = (step: string) => state.completed_steps.includes(step);
+    // Skip step đã compensate rồi (crash giữa compensation → retry vào đây)
+    const doneComp = (step: string) => state.completed_steps.includes(`comp:${step}`);
+
+    // Sequential — KHÔNG dùng Promise.allSettled
+    // Lý do: cần biết chính xác bước nào đã compensate để persist, crash ở đâu retry từ đó
+
+    if (shouldComp('creditPartner') && !doneComp('creditPartner')) {
+      await this.payService.updateMoney({
+        userId: account.partner_id,
+        amount: -(payload.accountPrice * 0.98),
+        idempotencyKey: compKey('creditPartner'),
+      });
+      await this.markStep(state, 'comp:creditPartner');
+    }
+
+    if (shouldComp('deductBuyer') && !doneComp('deductBuyer')) {
+      await this.payService.updateMoney({
+        userId: payload.user_id,
+        amount: payload.accountPrice,
+        idempotencyKey: compKey('deductBuyer'),
+      });
+      await this.markStep(state, 'comp:deductBuyer');
+    }
+
+    if (shouldComp('changeEmail') && !doneComp('changeEmail')) {
+      await this.authService.handleChangeEmail({
+        sessionId,
+        newEmail: state.original_email,           // từ saga_state, không đọc lại DB
+        idempotencyKey: compKey('changeEmail'),
+      });
+      await this.markStep(state, 'comp:changeEmail');
+    }
+
+    if (shouldComp('changePass') && !doneComp('changePass')) {
+      await this.authService.handleSystemChangePassword({
+        sessionId,
+        newPassword: state.original_password,     // từ saga_state, không đọc lại DB
+        idempotencyKey: compKey('changePass'),
+      });
+      await this.markStep(state, 'comp:changePass');
+    }
+
+    // Compensation hoàn tất → tăng attempt, reset completedSteps, về FORWARD
+    // Lần retry tiếp theo sẽ dùng key v2 → downstream chạy lại được
+    await this.sagaStateRepo.update(state.saga_id, {
+      phase: SagaPhase.FORWARD,
+      attempt: state.attempt + 1,
+      completed_steps: [],   // reset sạch cho attempt mới
+    });
+  }
+
+  private async markStep(state: SagaStateEntity, step: string): Promise<void> {
+    state.completed_steps = [...state.completed_steps, step];
+    await this.sagaStateRepo.update(state.saga_id, {
+      completed_steps: state.completed_steps,
+    });
+  }
+
+  private isBusinessError(error: unknown): boolean {
+    // Lỗi tạm thời (network, timeout, 503) → KHÔNG compensate, để retry forward
+    // idempotency key đảm bảo forward retry an toàn
+    //
+    // Lỗi business (insufficient funds confirmed, account deleted...) → compensate
+    if (error instanceof RpcException) {
+      const rpcError = error.getError() as { code?: number };
+      return rpcError.code === status.FAILED_PRECONDITION
+          || rpcError.code === status.NOT_FOUND;
+    }
+    return false;
   }
 
   // ─── STEP 3b: Xử lý failure — retry với exponential backoff hoặc compensate ──
@@ -644,7 +783,6 @@ export class PartnerService {
     const errorMessage = error instanceof Error ? error.message : String(error);
 
     if (event.retries < event.maxRetries) {
-      // Exponential backoff: 30s → 2m → 10m
       const delayMs = Math.pow(4, event.retries + 1) * 30_000;
       const nextRetryAt = new Date(Date.now() + delayMs);
 
@@ -655,23 +793,36 @@ export class PartnerService {
         lastError: errorMessage,
       });
 
-      console.warn(
-        `Saga ${event.id} retry ${event.retries + 1}/${event.maxRetries} — next at ${nextRetryAt.toISOString()}`
-      );
+      console.warn(`Saga ${event.id} retry ${event.retries + 1}/${event.maxRetries}`);
+
     } else {
-      // Hết retry: đưa account về ACTIVE và đánh FAILED
       await this.outboxRepository.update(event.id, {
         status: 'FAILED',
         lastError: errorMessage,
       });
 
-      await this.partnerRepository.update(
-        { id: Number(payload.id), status: 'PENDING' },
-        { status: 'ACTIVE', buyer_id: null },
-      ).catch(e => console.error(`CRITICAL: account ${payload.id} kẹt PENDING sau max retries`, e));
+      // Đọc saga state để quyết định có tự reset được không
+      const sagaState = await this.sagaStateRepo.findOne({ where: { saga_id: event.id } });
+      const hasPartialSideEffects = sagaState && sagaState.completed_steps.length > 0;
 
-      // TODO: gửi alert (Slack, email, PagerDuty...)
-      console.error(`CRITICAL: Saga ${event.id} FAILED after ${event.maxRetries} retries — manual review needed`);
+      if (hasPartialSideEffects) {
+        // Đã có side effect dở dang → KHÔNG tự reset, bắt buộc manual review
+        // Tự reset lúc này có thể gây mất tiền hoặc inconsistent state
+        console.error(`CRITICAL: Saga ${event.id} FAILED with partial side effects`, {
+          phase: sagaState.phase,
+          completedSteps: sagaState.completed_steps,
+          attempt: sagaState.attempt,
+        });
+        // TODO: gửi alert Slack/PagerDuty với đủ context để engineer xử lý tay
+      } else {
+        // Chưa có step nào chạy → an toàn reset account về ACTIVE
+        await this.partnerRepository.update(
+          { id: Number(payload.id), status: 'PENDING' },
+          { status: 'ACTIVE', buyer_id: null },
+        ).catch(e => console.error(`CRITICAL: cannot reset account ${payload.id}`, e));
+
+        console.error(`Saga ${event.id} FAILED before any steps — account reset to ACTIVE`);
+      }
     }
   }
 

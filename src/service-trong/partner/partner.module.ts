@@ -6,10 +6,11 @@ import { PayModule } from 'src/service-ngoai/pay/pay.module';
 import { AuthModule } from 'src/service-ngoai/auth/auth.module';
 import { ClientsModule, Transport } from '@nestjs/microservices';
 import { OutboxEvent } from './outbox-event.entity';
+import { SagaStateEntity } from './saga-state.entity';
 
 @Module({
   imports: [
-    TypeOrmModule.forFeature([Partner, OutboxEvent]), 
+    TypeOrmModule.forFeature([Partner, OutboxEvent, SagaStateEntity]), 
     // Đăng kí client RabbitMQ
     ClientsModule.register([
       {

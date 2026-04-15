@@ -25,6 +25,7 @@ import { Entity, PrimaryGeneratedColumn, Column, CreateDateColumn, UpdateDateCol
 // - Nên là status sẽ luôn trả ít row từ đó nhìn tổng thể thì selectivity cao
 // - Kết hợp nextRetryAt làm selectivity tổng thể của composite index cao
 @Index(['status', 'nextRetryAt'])
+@Index(['status', 'updatedAt'])
 @Entity('outbox_events')
 export class OutboxEvent {
   @PrimaryGeneratedColumn('uuid')

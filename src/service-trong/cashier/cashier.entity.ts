@@ -5,6 +5,9 @@ export class Cashier {
   @PrimaryGeneratedColumn()
   id: number;
 
+  // Tạm thời chỉ index user_id, nếu sau này cần sort theo request_at(order by)
+  // thì cần composite indexing thay vì single indexing
+  // composite userId(Selectivity) + request_at(Order by)
   @Index()
   @Column({ nullable: false })
   user_id: number;
