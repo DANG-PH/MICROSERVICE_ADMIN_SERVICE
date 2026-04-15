@@ -669,7 +669,6 @@ export class PartnerService {
 
     // Fetch email buyer — chỉ cần cho forward
     const emailBuyer = await this.authService.handleGetEmail({ id: payload.user_id });
-    console.log("EMAIL BUYER: "+emailBuyer)
 
     const runStep = async (name: string, fn: () => Promise<void>) => {
       if (done(name)) {
