@@ -305,7 +305,14 @@ export class PartnerService {
       skip: skip, 
     });
     const mapped = accounts.map(acc => ({
-      ...acc,
+      id: acc.id,
+      username: acc.username,
+      url: acc.url,
+      description: acc.description,
+      price: Number(acc.price),   
+      status: acc.status,
+      partner_id: acc.partner_id,
+      buyer_id: acc.buyer_id ?? 0,
       createdAt: acc.createdAt.toISOString(),
     }));
 
@@ -332,7 +339,14 @@ export class PartnerService {
 
     return {
       account: {
-        ...account,
+        id: account.id,
+        username: account.username,
+        url: account.url,
+        description: account.description,
+        price: Number(account.price),   
+        status: account.status,
+        partner_id: account.partner_id,
+        buyer_id: account.buyer_id ?? 0,
         createdAt: account.createdAt.toISOString(),
       },
     };
