@@ -42,7 +42,7 @@ import { SagaPhase, SagaStateEntity } from './saga-state.entity';
 // Thứ tự decorator trong TypeScript: chạy từ dưới lên trên
 // 1. @Injectable() chạy trước → NestJS đánh dấu class để inject dependency
 // 2. @GrpcErrorHandler() chạy sau → wrap tất cả methods
-// @GrpcErrorHandler()
+@GrpcErrorHandler()
 @Injectable()
 export class PartnerService {
   constructor(
@@ -507,8 +507,8 @@ export class PartnerService {
       try {
         await this.processOutboxEvent(event)
       } catch (error) {
-        // Đưa về PENDING để retry lần sau
-        await this.outboxRepository.update(event.id, { status: 'PENDING' })
+        // handleSagaFailure đã xử lý vụ reset outbox pending hoặc đánh fail, nếu vào đây là DB lỗi nghiêm trọng
+        console.error(`Unexpected error processing outbox ${event.id}`, error);
       }
     }
   }
@@ -621,7 +621,7 @@ export class PartnerService {
     if (state.phase === SagaPhase.COMPENSATING) {
       // Crash giữa compensation → tiếp tục compensation, tuyệt đối không forward
       await this.runCompensation(payload, state);
-      return;
+      throw new Error('Compensation complete, needs forward retry');
     }
 
     // phase === FORWARD
@@ -705,52 +705,57 @@ export class PartnerService {
       }
     };
 
-await runStep('changePass', async () => {
-  await this.authService.handleSystemChangePassword({
-    sessionId,
-    newPassword: payload.newPassword,
-    idempotencyKey: key('changePass'),
-  });
-});
+    // ĐẦU TIÊN: deductBuyer — fail-fast trước khi gây side effect
+    // Nếu user hết tiền → fail ngay, không tốn gRPC cho changePass/changeEmail
+    await runStep('deductBuyer', async () => {
+      await this.payService.updateMoney({
+        userId: payload.userId,
+        amount: -payload.accountPrice,
+        idempotencyKey: key('deductBuyer'),
+      });
+    });
 
-await runStep('changeEmail', async () => {
-  await this.authService.handleChangeEmail({
-    sessionId,
-    newEmail: emailBuyer.email,
-    idempotencyKey: key('changeEmail'),
-  });
-});
 
-await runStep('deductBuyer', async () => {
-  await this.payService.updateMoney({
-    userId: payload.userId,
-    amount: -payload.accountPrice,
-    idempotencyKey: key('deductBuyer'),
-  });
-});
+    await runStep('changePass', async () => {
+      await this.authService.handleSystemChangePassword({
+        sessionId,
+        newPassword: payload.newPassword,
+        idempotencyKey: key('changePass'),
+      });
+    });
 
-await runStep('creditPartner', async () => {
-  await this.payService.updateMoney({
-    userId: account.partner_id,
-    amount: payload.accountPrice * 0.98,
-    idempotencyKey: key('creditPartner'),
-  });
-});
+    await runStep('changeEmail', async () => {
+      await this.authService.handleChangeEmail({
+        sessionId,
+        newEmail: emailBuyer.email,
+        idempotencyKey: key('changeEmail'),
+      });
+    });
 
-    // ── Finalize — idempotent, không cần guard ───────────────────────────────
-    await this.authService.handleSetTokenVersion({ username: account.username });
-    await this.partnerRepository.update(
-      { id: payload.id, status: 'PENDING' },
-      { status: 'SOLD', password: payload.newPassword },
-    );
-    if (!done('emailSent')) {
+    await runStep('creditPartner', async () => {
+      await this.payService.updateMoney({
+        userId: account.partner_id,
+        amount: payload.accountPrice * 0.98,
+        idempotencyKey: key('creditPartner'),
+      });
+    });
+
+    // ── Finalize ───────────────────────────────
+    await runStep('markSold', async () => {
+      await this.authService.handleSetTokenVersion({ username: account.username });
+      await this.partnerRepository.update(
+        { id: payload.id, status: 'PENDING' },
+        { status: 'SOLD', password: payload.newPassword },
+      );
+    });
+    
+    await runStep('emailSent', async () => {
       await this.authService.handleSendEmailToUser({
         who: payload.username,
         title: 'Mua tài khoản thành công',
         content: `Username: ${account.username} | Password: ${payload.newPassword}`,
       });
-      await this.markStep(state, 'emailSent');
-    }
+    });
 
     await this.sagaStateRepo.update(state.saga_id, { phase: SagaPhase.DONE });
   }
@@ -783,15 +788,6 @@ await runStep('creditPartner', async () => {
       await this.markStep(state, 'comp:creditPartner');
     }
 
-    if (shouldComp('deductBuyer') && !doneComp('deductBuyer')) {
-      await this.payService.updateMoney({
-        userId: payload.userId,
-        amount: payload.accountPrice,
-        idempotencyKey: compKey('deductBuyer'),
-      });
-      await this.markStep(state, 'comp:deductBuyer');
-    }
-
     if (shouldComp('changeEmail') && !doneComp('changeEmail')) {
       await this.authService.handleChangeEmail({
         sessionId,
@@ -808,6 +804,15 @@ await runStep('creditPartner', async () => {
         idempotencyKey: compKey('changePass'),
       });
       await this.markStep(state, 'comp:changePass');
+    }
+
+    if (shouldComp('deductBuyer') && !doneComp('deductBuyer')) {
+      await this.payService.updateMoney({
+        userId: payload.userId,
+        amount: payload.accountPrice,
+        idempotencyKey: compKey('deductBuyer'),
+      });
+      await this.markStep(state, 'comp:deductBuyer');
     }
 
     // Compensation hoàn tất → tăng attempt, reset completedSteps, về FORWARD
@@ -876,6 +881,11 @@ await runStep('creditPartner', async () => {
           completedSteps: sagaState.completed_steps,
           attempt: sagaState.attempt,
         });
+
+        // Worst case cần human ngoài compensation fail
+        // Case 1 — Compensation dở dang + max retries → alert, human ép nốt hoặc rollback hoàn toàn. Đúng.
+        // Case 2 — Forward dở dang không phải business error: Ví dụ changePass xong, changeEmail xong, deductBuyer xong rồi creditPartner liên tục timeout/503 đến hết maxRetries. Đây là network error nên isBusinessError=false → không compensate → saga FAILED với 3 steps đã chạy. Human phải tay credit tiền cho partner.
+        // Case 2 là thật nhất và hiện tại code chưa handle — khi FAILED mà hasPartialSideEffects=true và phase=FORWARD thì nên log rõ từng completed_steps để human biết chính xác phải làm gì.
         // TODO: gửi alert Slack/PagerDuty với đủ context để engineer xử lý tay
       } else {
         // Chưa có step nào chạy → an toàn reset account về ACTIVE
