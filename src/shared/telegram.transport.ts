@@ -29,7 +29,7 @@ export class TelegramTransport extends TransportStream {
             text: message,
             parse_mode: 'Markdown',
           });
-        } catch (error) {
+        } catch (error: any) {
           console.error('Failed to send Telegram message:', error.message);
         }
       }

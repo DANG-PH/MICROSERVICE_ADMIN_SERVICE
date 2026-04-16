@@ -37,6 +37,7 @@ import { OutboxEvent } from './outbox-event.entity';
 import { Cron, CronExpression } from '@nestjs/schedule';
 import { EventEmitter2, OnEvent } from '@nestjs/event-emitter';
 import { SagaPhase, SagaStateEntity } from './saga-state.entity';
+import { DiscordAlert } from 'src/shared/discord.alert';
 
 // @GrpcErrorHandler() chạy TRƯỚC @Injectable()
 // Thứ tự decorator trong TypeScript: chạy từ dưới lên trên
@@ -875,6 +876,13 @@ export class PartnerService {
         lastError: errorMessage,
       });
 
+      await DiscordAlert.sagaWarn({
+        sagaId: event.id,
+        retry: event.retries + 1,
+        maxRetries: event.maxRetries,
+        lastError: errorMessage,
+      });
+
       console.warn(`Saga ${event.id} retry ${event.retries + 1}/${event.maxRetries}`);
 
     } else {
@@ -894,6 +902,14 @@ export class PartnerService {
           phase: sagaState.phase,
           completedSteps: sagaState.completed_steps,
           attempt: sagaState.attempt,
+        });
+
+        await DiscordAlert.sagaCritical({
+          sagaId: event.id,
+          phase: sagaState.phase,
+          attempt: sagaState.attempt,
+          completedSteps: sagaState.completed_steps,
+          lastError: errorMessage,
         });
 
         // Worst case cần human ngoài compensation fail

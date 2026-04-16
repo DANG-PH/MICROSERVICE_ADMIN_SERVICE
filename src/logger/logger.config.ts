@@ -1,6 +1,6 @@
 import { WinstonModule } from 'nest-winston';
 import * as winston from 'winston';
-import { TelegramTransport } from './telegram.transport';
+import { TelegramTransport } from '../shared/telegram.transport';
 
 export const winstonLogger = WinstonModule.createLogger({
   transports: [
