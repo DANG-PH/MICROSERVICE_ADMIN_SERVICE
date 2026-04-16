@@ -924,6 +924,12 @@ export class PartnerService {
           { status: 'ACTIVE', buyer_id: null },
         ).catch(e => console.error(`CRITICAL: cannot reset account ${payload.id}`, e));
 
+        // Alert để biết có saga fail nhưng đã tự xử lý được
+        await DiscordAlert.taiKhoanResetVeActive({
+          sagaId: event.id,
+          accountId: payload.id,
+        });
+
         console.error(`Saga ${event.id} FAILED before any steps — account reset to ACTIVE`);
       }
     }

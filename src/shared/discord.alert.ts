@@ -85,4 +85,20 @@ export class DiscordAlert {
       ],
     });
   }
+
+  // Saga thất bại nhưng chưa có side effect → an toàn reset account về ACTIVE
+  static async taiKhoanResetVeActive(params: {
+    sagaId: string;
+    accountId: string;
+  }): Promise<void> {
+    await this.gui({
+      title: '✅ Saga thất bại — tài khoản đã được reset về ACTIVE',
+      color: COLOR.XANH,
+      fields: [
+        { name: 'Saga ID',    value: params.sagaId,    inline: true },
+        { name: 'Account ID', value: params.accountId, inline: true },
+        { name: 'Ghi chú',   value: 'Chưa có bước nào chạy nên tự reset an toàn, không cần xử lý thủ công' },
+      ],
+    });
+  }
 }
