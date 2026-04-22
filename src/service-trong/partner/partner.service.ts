@@ -916,7 +916,6 @@ export class PartnerService {
         // Case 1 — Compensation dở dang + max retries → alert, human ép nốt hoặc rollback hoàn toàn. Đúng.
         // Case 2 — Forward dở dang không phải business error: Ví dụ changePass xong, changeEmail xong, deductBuyer xong rồi creditPartner liên tục timeout/503 đến hết maxRetries. Đây là network error nên isBusinessError=false → không compensate → saga FAILED với 3 steps đã chạy. Human phải tay credit tiền cho partner.
         // Case 2 là thật nhất và hiện tại code chưa handle — khi FAILED mà hasPartialSideEffects=true và phase=FORWARD thì nên log rõ từng completed_steps để human biết chính xác phải làm gì.
-        // TODO: gửi alert Slack/PagerDuty với đủ context để engineer xử lý tay
       } else {
         // Chưa có step nào chạy → an toàn reset account về ACTIVE
         await this.partnerRepository.update(
